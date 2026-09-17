@@ -29,7 +29,7 @@ def main() -> int:
         QMessageBox.critical(None, "AudioCut Studio — Erreur", str(exc))
         return 1
 
-    window = MainWindow()
+    window = MainWindow(binaries)
     window.show()
 
     return app.exec()

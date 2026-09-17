@@ -1,16 +1,15 @@
-"""Fenêtre principale minimale d'AudioCut Studio (squelette, sans logique métier)."""
+"""Fenêtre principale d'AudioCut Studio."""
 
-from PySide6.QtWidgets import QLabel, QMainWindow
+from PySide6.QtWidgets import QMainWindow
 
 from app.config.constants import APP_NAME
+from app.config.settings import FFmpegBinaries
+from app.ui.video_panel import VideoPanel
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, ffmpeg_binaries: FFmpegBinaries) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1200, 800)
-
-        placeholder = QLabel("AudioCut Studio — squelette du projet.\nImport vidéo à venir (Phase 2).")
-        placeholder.setContentsMargins(24, 24, 24, 24)
-        self.setCentralWidget(placeholder)
+        self.setCentralWidget(VideoPanel(ffmpeg_binaries))
