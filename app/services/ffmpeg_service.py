@@ -7,6 +7,7 @@ rendent asynchrones pour ne pas geler l'interface Qt.
 """
 
 import re
+import shutil
 import subprocess
 import tempfile
 import wave
@@ -14,6 +15,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 _TIME_PATTERN = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+_SILENCE_START_PATTERN = re.compile(r"silence_start:\s*(-?\d+\.?\d*)")
+_SILENCE_END_PATTERN = re.compile(r"silence_end:\s*(-?\d+\.?\d*)")
 
 _MP3_BITRATES = {"128", "192", "256", "320"}
 _WAV_SAMPLE_FORMATS = {"16": "pcm_s16le", "24": "pcm_s24le"}
@@ -93,6 +96,69 @@ class FFmpegService:
         finally:
             Path(filelist_path).unlink(missing_ok=True)
 
+    def detect_silences(
+        self, source_wav_path: str, threshold_db: float, min_duration: float
+    ) -> list[tuple[float, float]]:
+        """Détecte les silences via le filtre `silencedetect` (aucun fichier de sortie produit)."""
+        cmd = [
+            self._ffmpeg_path,
+            "-i", source_wav_path,
+            "-af", f"silencedetect=noise={threshold_db}dB:d={min_duration}",
+            "-f", "null",
+            "-",
+        ]
+        stderr_lines = self._run(cmd)
+
+        silences: list[tuple[float, float]] = []
+        pending_start: float | None = None
+        for line in stderr_lines:
+            start_match = _SILENCE_START_PATTERN.search(line)
+            if start_match:
+                pending_start = float(start_match.group(1))
+                continue
+            end_match = _SILENCE_END_PATTERN.search(line)
+            if end_match and pending_start is not None:
+                silences.append((pending_start, float(end_match.group(1))))
+                pending_start = None
+
+        return silences
+
+    def concat_with_crossfade(self, input_wav_paths: list[str], out_wav_path: str, crossfade_duration: float) -> None:
+        """Concatène plusieurs WAV avec un fondu croisé de `crossfade_duration` secondes entre chacun."""
+        if not input_wav_paths:
+            raise ValueError("input_wav_paths must not be empty")
+
+        if len(input_wav_paths) == 1:
+            shutil.copyfile(input_wav_paths[0], out_wav_path)
+            return
+
+        intermediates: list[str] = []
+        try:
+            current = input_wav_paths[0]
+            remaining = input_wav_paths[1:]
+            for index, next_path in enumerate(remaining):
+                is_last = index == len(remaining) - 1
+                if is_last:
+                    out = out_wav_path
+                else:
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                        out = tmp.name
+                    intermediates.append(out)
+
+                cmd = [
+                    self._ffmpeg_path,
+                    "-y",
+                    "-i", current,
+                    "-i", next_path,
+                    "-filter_complex", f"acrossfade=d={crossfade_duration}:c1=tri:c2=tri",
+                    out,
+                ]
+                self._run(cmd)
+                current = out
+        finally:
+            for path in intermediates:
+                Path(path).unlink(missing_ok=True)
+
     def apply_filters(self, source_wav_path: str, out_wav_path: str, filter_chain: str) -> None:
         """Applique une chaîne de filtres audio FFmpeg (`-af`), sans toucher au fichier source."""
         cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-af", filter_chain, out_wav_path]
@@ -125,7 +191,7 @@ class FFmpegService:
         cmd: list[str],
         total_duration: float = 0.0,
         on_progress: Callable[[float], None] | None = None,
-    ) -> None:
+    ) -> list[str]:
         process = subprocess.Popen(
             cmd,
             stderr=subprocess.PIPE,
@@ -153,3 +219,5 @@ class FFmpegService:
 
         if on_progress:
             on_progress(1.0)
+
+        return stderr_lines

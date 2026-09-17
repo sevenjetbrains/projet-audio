@@ -69,3 +69,13 @@ def test_export_project_mp3(project_with_sequences, tmp_path):
     export_project(project, ffmpeg_service, str(out_path), "MP3", "192")
 
     assert out_path.exists()
+
+
+def test_merge_sequences_with_crossfade(project_with_sequences):
+    project, ffmpeg_service = project_with_sequences
+    project.crossfade_duration = 0.1
+
+    final_wav = merge_sequences(project, ffmpeg_service)
+
+    assert Path(final_wav).exists()
+    assert Path(final_wav).stat().st_size > 0

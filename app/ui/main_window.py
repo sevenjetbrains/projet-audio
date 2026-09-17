@@ -58,8 +58,16 @@ class MainWindow(QMainWindow):
         self._merge_preview_button = QPushButton("Fusionner et prévisualiser")
         self._merge_preview_button.clicked.connect(self._on_merge_preview_clicked)
 
+        self._crossfade_spin = QDoubleSpinBox()
+        self._crossfade_spin.setRange(0.0, 5.0)
+        self._crossfade_spin.setSingleStep(0.1)
+        self._crossfade_spin.setSuffix(" s")
+        self._crossfade_spin.setPrefix("Crossfade : ")
+        self._crossfade_spin.valueChanged.connect(self._on_crossfade_changed)
+
         bottom_layout = QHBoxLayout()
         bottom_layout.addWidget(self._transport_controls, stretch=1)
+        bottom_layout.addWidget(self._crossfade_spin)
         bottom_layout.addWidget(self._merge_preview_button)
 
         middle_layout = QHBoxLayout()
@@ -119,6 +127,9 @@ class MainWindow(QMainWindow):
         self._transport_controls.set_source(wav_path)
         self._sequence_list.set_project(self._video_panel.project)
         self._audio_processing_panel.set_project(self._video_panel.project)
+        self._crossfade_spin.blockSignals(True)
+        self._crossfade_spin.setValue(self._video_panel.project.crossfade_duration)
+        self._crossfade_spin.blockSignals(False)
 
         for spin in (self._selection_start_spin, self._selection_end_spin):
             spin.blockSignals(True)
@@ -147,6 +158,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "AudioCut Studio", "Sélectionnez une plage valide avant de créer une séquence.")
             return
         self._sequence_list.add_sequence_from_selection(start, end)
+
+    def _on_crossfade_changed(self, value: float) -> None:
+        project = self._video_panel.project
+        if project is not None:
+            project.crossfade_duration = value
 
     def _on_sequence_play_requested(self, name: str, audio_path: str) -> None:
         self._transport_controls.set_source(audio_path)

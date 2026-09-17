@@ -42,6 +42,7 @@ def save_project(project: Project, out_path: str) -> None:
     data = {
         "project_name": project.name,
         "source_video": project.source_video.path,
+        "crossfade_duration": project.crossfade_duration,
         "sequences": [
             {
                 "id": seq.id,
@@ -76,6 +77,7 @@ def load_project(path: str, ffprobe_service: FFprobeService, ffmpeg_service: FFm
 
     project = create_project_for_video(media_info)
     project.name = data.get("project_name", project.name)
+    project.crossfade_duration = data.get("crossfade_duration", 0.0)
 
     original_audio = str(Path(project.temp_dir) / "source.wav")
     ffmpeg_service.extract_audio(video_path, original_audio, media_info.duration)

@@ -61,6 +61,22 @@ class AudioProcessingPanel(QWidget):
         self._fade_in_spin = self._make_seconds_spin()
         self._fade_out_spin = self._make_seconds_spin()
 
+        self._silence_removal_cb = QCheckBox("Suppression des silences")
+        self._silence_threshold_spin = QDoubleSpinBox()
+        self._silence_threshold_spin.setRange(-60.0, -10.0)
+        self._silence_threshold_spin.setValue(-35.0)
+        self._silence_threshold_spin.setSuffix(" dB")
+        self._silence_min_duration_spin = QDoubleSpinBox()
+        self._silence_min_duration_spin.setRange(0.05, 5.0)
+        self._silence_min_duration_spin.setSingleStep(0.05)
+        self._silence_min_duration_spin.setValue(0.5)
+        self._silence_min_duration_spin.setSuffix(" s")
+        self._silence_keep_padding_spin = QDoubleSpinBox()
+        self._silence_keep_padding_spin.setRange(0.0, 2.0)
+        self._silence_keep_padding_spin.setSingleStep(0.05)
+        self._silence_keep_padding_spin.setValue(0.1)
+        self._silence_keep_padding_spin.setSuffix(" s")
+
         self._apply_button = QPushButton("Appliquer")
         self._apply_button.clicked.connect(self._on_apply_clicked)
         self._reset_button = QPushButton("Réinitialiser")
@@ -97,6 +113,11 @@ class AudioProcessingPanel(QWidget):
         form.addRow("Gain (dB) :", self._gain_spin)
         form.addRow("Fade In (s) :", self._fade_in_spin)
         form.addRow("Fade Out (s) :", self._fade_out_spin)
+
+        form.addRow(self._silence_removal_cb)
+        form.addRow("Seuil silence :", self._silence_threshold_spin)
+        form.addRow("Durée min. silence :", self._silence_min_duration_spin)
+        form.addRow("Marge conservée :", self._silence_keep_padding_spin)
 
         buttons_row = QHBoxLayout()
         buttons_row.addWidget(self._apply_button)
@@ -153,6 +174,10 @@ class AudioProcessingPanel(QWidget):
         self._gain_spin.setValue(settings.gain)
         self._fade_in_spin.setValue(settings.fade_in)
         self._fade_out_spin.setValue(settings.fade_out)
+        self._silence_removal_cb.setChecked(settings.silence_removal)
+        self._silence_threshold_spin.setValue(settings.silence_threshold_db)
+        self._silence_min_duration_spin.setValue(settings.silence_min_duration)
+        self._silence_keep_padding_spin.setValue(settings.silence_keep_padding)
 
     def _read_settings(self) -> AudioSettings:
         return AudioSettings(
@@ -171,6 +196,10 @@ class AudioProcessingPanel(QWidget):
             normalize=self._normalize_cb.isChecked(),
             normalize_mode=self._normalize_mode_combo.currentText(),
             normalize_target_lufs=self._target_lufs_spin.value(),
+            silence_removal=self._silence_removal_cb.isChecked(),
+            silence_threshold_db=self._silence_threshold_spin.value(),
+            silence_min_duration=self._silence_min_duration_spin.value(),
+            silence_keep_padding=self._silence_keep_padding_spin.value(),
         )
 
     def _on_apply_clicked(self) -> None:

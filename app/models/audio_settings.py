@@ -29,3 +29,8 @@ class AudioSettings:
     normalize: bool = False
     normalize_mode: str = "peak"
     normalize_target_lufs: float = -16.0
+
+    silence_removal: bool = False
+    silence_threshold_db: float = -35.0
+    silence_min_duration: float = 0.5
+    silence_keep_padding: float = 0.1

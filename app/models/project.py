@@ -13,3 +13,4 @@ class Project:
     sequences: list[Sequence] = field(default_factory=list)
     temp_dir: str = ""
     original_audio_path: str = ""
+    crossfade_duration: float = 0.0
