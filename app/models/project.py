@@ -11,3 +11,5 @@ class Project:
     name: str
     source_video: MediaInfo | None = None
     sequences: list[Sequence] = field(default_factory=list)
+    temp_dir: str = ""
+    original_audio_path: str = ""
