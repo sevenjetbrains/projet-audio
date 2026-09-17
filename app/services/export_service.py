@@ -17,7 +17,7 @@ def merge_sequences(project: Project, ffmpeg_service: FFmpegService) -> str:
 
     ordered = sorted(project.sequences, key=lambda seq: seq.order)
     out_path = str(Path(project.temp_dir) / "final.wav")
-    ffmpeg_service.concat_audio([seq.audio_path for seq in ordered], out_path)
+    ffmpeg_service.concat_audio([seq.effective_audio_path for seq in ordered], out_path)
     return out_path
 
 

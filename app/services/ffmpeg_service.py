@@ -93,6 +93,11 @@ class FFmpegService:
         finally:
             Path(filelist_path).unlink(missing_ok=True)
 
+    def apply_filters(self, source_wav_path: str, out_wav_path: str, filter_chain: str) -> None:
+        """Applique une chaîne de filtres audio FFmpeg (`-af`), sans toucher au fichier source."""
+        cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-af", filter_chain, out_wav_path]
+        self._run(cmd)
+
     def export_audio(self, source_wav_path: str, out_path: str, fmt: str, quality: str) -> None:
         """Réencode un WAV source vers le format/qualité d'export choisis par l'utilisateur."""
         fmt = fmt.lower()
