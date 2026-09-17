@@ -1,0 +1,18 @@
+QMainWindow, QWidget {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    font-size: 13px;
+}
+
+QMenuBar {
+    background-color: #252526;
+    color: #e0e0e0;
+}
+
+QMenuBar::item:selected {
+    background-color: #3a3d41;
+}
+
+QLabel {
+    color: #e0e0e0;
+}
