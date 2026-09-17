@@ -37,7 +37,7 @@ def test_add_sequence_from_selection_populates_list(widget_with_project):
     assert len(project.sequences) == 1
 
 
-def test_delete_removes_item_and_file(widget_with_project):
+def test_delete_removes_item_but_keeps_file_for_undo(widget_with_project):
     widget, project = widget_with_project
     widget.add_sequence_from_selection(0.0, 0.4)
     sequence = project.sequences[0]
@@ -47,7 +47,51 @@ def test_delete_removes_item_and_file(widget_with_project):
 
     assert widget._list_widget.count() == 0
     assert project.sequences == []
-    assert not Path(sequence.audio_path).exists()
+    # Le fichier est conservé (pas encore de suppression définitive) pour permettre Ctrl+Z.
+    assert Path(sequence.audio_path).exists()
+
+
+def test_undo_restores_deleted_sequence(widget_with_project):
+    widget, project = widget_with_project
+    widget.add_sequence_from_selection(0.0, 0.4)
+    sequence_id = project.sequences[0].id
+
+    widget._list_widget.setCurrentRow(0)
+    widget._on_delete_clicked()
+    assert project.sequences == []
+
+    widget.undo_stack.undo()
+
+    assert len(project.sequences) == 1
+    assert project.sequences[0].id == sequence_id
+    assert widget._list_widget.count() == 1
+
+
+def test_redo_reapplies_delete(widget_with_project):
+    widget, project = widget_with_project
+    widget.add_sequence_from_selection(0.0, 0.4)
+
+    widget._list_widget.setCurrentRow(0)
+    widget._on_delete_clicked()
+    widget.undo_stack.undo()
+    widget.undo_stack.redo()
+
+    assert project.sequences == []
+    assert widget._list_widget.count() == 0
+
+
+def test_undo_add_sequence(widget_with_project):
+    widget, project = widget_with_project
+
+    widget.add_sequence_from_selection(0.0, 0.4)
+    assert len(project.sequences) == 1
+
+    widget.undo_stack.undo()
+    assert project.sequences == []
+    assert widget._list_widget.count() == 0
+
+    widget.undo_stack.redo()
+    assert len(project.sequences) == 1
 
 
 def test_duplicate_adds_second_item(widget_with_project):

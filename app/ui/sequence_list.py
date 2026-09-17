@@ -1,6 +1,11 @@
-"""Liste des séquences : création, suppression, renommage, duplication, réorganisation (drag & drop)."""
+"""Liste des séquences : création, suppression, renommage, duplication, réorganisation (drag & drop).
+
+Toutes les mutations passent par un QUndoStack (§17/§34) : chaque action pousse
+une CallbackCommand réversible plutôt que d'appeler sequence_service directement.
+"""
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -16,6 +21,7 @@ from PySide6.QtWidgets import (
 from app.models.project import Project
 from app.services import sequence_service
 from app.services.ffmpeg_service import FFmpegExecutionError, FFmpegService
+from app.ui.undo_commands import CallbackCommand
 from app.utils.time_utils import format_timecode
 
 
@@ -28,6 +34,7 @@ class SequenceListWidget(QWidget):
         super().__init__(parent)
         self._ffmpeg_service = ffmpeg_service
         self._project: Project | None = None
+        self._undo_stack = QUndoStack(self)
 
         self._list_widget = QListWidget()
         self._list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
@@ -52,15 +59,20 @@ class SequenceListWidget(QWidget):
         layout.addLayout(buttons_layout)
         self.setLayout(layout)
 
+    @property
+    def undo_stack(self) -> QUndoStack:
+        return self._undo_stack
+
     def set_project(self, project: Project) -> None:
         self._project = project
+        self._undo_stack.clear()
         self._refresh()
 
     def add_sequence_from_selection(self, start: float, end: float) -> None:
         if self._project is None:
             return
         try:
-            sequence_service.add_sequence(self._project, self._ffmpeg_service, start, end)
+            sequence = sequence_service.create_sequence(self._project, self._ffmpeg_service, start, end)
         except ValueError as exc:
             QMessageBox.warning(self, "AudioCut Studio", str(exc))
             return
@@ -68,8 +80,11 @@ class SequenceListWidget(QWidget):
             QMessageBox.critical(self, "AudioCut Studio — Erreur", "Erreur lors de la création de la séquence.")
             return
 
-        self._refresh()
-        self.sequences_changed.emit()
+        self._push_command(
+            f"Créer « {sequence.name} »",
+            redo_fn=lambda: sequence_service.insert_sequence(self._project, sequence),
+            undo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, sequence.id),
+        )
 
     def _refresh(self) -> None:
         previous_id = self._current_sequence_id()
@@ -90,6 +105,19 @@ class SequenceListWidget(QWidget):
                 if sequence.id == previous_id:
                     self._list_widget.setCurrentItem(item)
         self._list_widget.blockSignals(False)
+
+    def _push_command(self, description: str, redo_fn, undo_fn) -> None:
+        def wrapped_redo():
+            redo_fn()
+            self._refresh()
+            self.sequences_changed.emit()
+
+        def wrapped_undo():
+            undo_fn()
+            self._refresh()
+            self.sequences_changed.emit()
+
+        self._undo_stack.push(CallbackCommand(description, wrapped_redo, wrapped_undo))
 
     def _current_sequence_id(self) -> str | None:
         item = self._list_widget.currentItem()
@@ -116,46 +144,63 @@ class SequenceListWidget(QWidget):
         self.sequence_selected.emit(current.data(Qt.ItemDataRole.UserRole))
 
     def _on_play_clicked(self) -> None:
-        sequence_id = self._current_sequence_id()
-        if sequence_id is None or self._project is None:
+        sequence = self.current_sequence()
+        if sequence is None:
             return
-        sequence = next(seq for seq in self._project.sequences if seq.id == sequence_id)
         self.play_requested.emit(sequence.name, sequence.effective_audio_path)
 
     def _on_rename_clicked(self) -> None:
-        sequence_id = self._current_sequence_id()
-        if sequence_id is None or self._project is None:
+        sequence = self.current_sequence()
+        if sequence is None or self._project is None:
             return
-        sequence = next(seq for seq in self._project.sequences if seq.id == sequence_id)
         new_name, ok = QInputDialog.getText(self, "Renommer la séquence", "Nom :", text=sequence.name)
-        if ok and new_name.strip():
-            sequence_service.rename_sequence(self._project, sequence_id, new_name.strip())
-            self._refresh()
-            self.sequences_changed.emit()
+        if not (ok and new_name.strip()):
+            return
+
+        old_name = sequence.name
+        new_name = new_name.strip()
+        self._push_command(
+            f"Renommer « {old_name} » en « {new_name} »",
+            redo_fn=lambda: sequence_service.rename_sequence(self._project, sequence.id, new_name),
+            undo_fn=lambda: sequence_service.rename_sequence(self._project, sequence.id, old_name),
+        )
 
     def _on_duplicate_clicked(self) -> None:
         sequence_id = self._current_sequence_id()
         if sequence_id is None or self._project is None:
             return
-        sequence_service.duplicate_sequence(self._project, sequence_id)
-        self._refresh()
-        self.sequences_changed.emit()
+        duplicate = sequence_service.create_duplicate(self._project, sequence_id)
+
+        self._push_command(
+            f"Dupliquer « {duplicate.name} »",
+            redo_fn=lambda: sequence_service.insert_sequence(self._project, duplicate),
+            undo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, duplicate.id),
+        )
 
     def _on_delete_clicked(self) -> None:
-        sequence_id = self._current_sequence_id()
-        if sequence_id is None or self._project is None:
+        sequence = self.current_sequence()
+        if sequence is None or self._project is None:
             return
-        sequence_service.remove_sequence(self._project, sequence_id)
-        self._refresh()
-        self.sequences_changed.emit()
+
+        self._push_command(
+            f"Supprimer « {sequence.name} »",
+            redo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, sequence.id),
+            undo_fn=lambda: sequence_service.insert_sequence(self._project, sequence),
+        )
 
     def _on_rows_moved(self, *_args) -> None:
         if self._project is None:
             return
-        ordered_ids = [
+        new_order = [
             self._list_widget.item(i).data(Qt.ItemDataRole.UserRole)
             for i in range(self._list_widget.count())
         ]
-        sequence_service.reorder_sequences(self._project, ordered_ids)
-        self._refresh()
-        self.sequences_changed.emit()
+        old_order = [seq.id for seq in sorted(self._project.sequences, key=lambda s: s.order)]
+        if new_order == old_order:
+            return
+
+        self._push_command(
+            "Réorganiser les séquences",
+            redo_fn=lambda: sequence_service.reorder_sequences(self._project, new_order),
+            undo_fn=lambda: sequence_service.reorder_sequences(self._project, old_order),
+        )

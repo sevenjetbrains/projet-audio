@@ -94,6 +94,14 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("Fichier")
         file_menu.addAction(import_action)
 
+        undo_action = self._sequence_list.undo_stack.createUndoAction(self, "Annuler")
+        undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        redo_action = self._sequence_list.undo_stack.createRedoAction(self, "Refaire")
+        redo_action.setShortcut(QKeySequence("Ctrl+Y"))
+        edit_menu = self.menuBar().addMenu("Édition")
+        edit_menu.addAction(undo_action)
+        edit_menu.addAction(redo_action)
+
         save_action = QAction("Sauvegarder le projet…", self)
         save_action.setShortcut(QKeySequence("Ctrl+S"))
         save_action.triggered.connect(self._on_save_project_clicked)
