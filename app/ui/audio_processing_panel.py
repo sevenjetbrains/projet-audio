@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.audio_profiles import AUDIO_PROFILES, CUSTOM_PROFILE_LABEL
 from app.models.audio_settings import AudioSettings
 from app.models.project import Project
 from app.models.sequence import Sequence
@@ -32,6 +33,11 @@ class AudioProcessingPanel(QWidget):
         self._project: Project | None = None
         self._sequence: Sequence | None = None
         self._worker: FFmpegTaskWorker | None = None
+
+        self._profile_combo = QComboBox()
+        self._profile_combo.addItem(CUSTOM_PROFILE_LABEL)
+        self._profile_combo.addItems(list(AUDIO_PROFILES.keys()))
+        self._profile_combo.currentTextChanged.connect(self._on_profile_selected)
 
         self._noise_cb = QCheckBox("Réduction du bruit")
         self._noise_level_combo = QComboBox()
@@ -88,6 +94,7 @@ class AudioProcessingPanel(QWidget):
         self._status_label = QLabel("Sélectionnez une séquence.")
 
         form = QFormLayout()
+        form.addRow("Profil :", self._profile_combo)
         noise_row = QHBoxLayout()
         noise_row.addWidget(self._noise_cb)
         noise_row.addWidget(self._noise_level_combo)
@@ -153,10 +160,18 @@ class AudioProcessingPanel(QWidget):
     def set_sequence(self, sequence: Sequence | None) -> None:
         self._sequence = sequence
         self.setEnabled(sequence is not None)
+        self._profile_combo.blockSignals(True)
+        self._profile_combo.setCurrentText(CUSTOM_PROFILE_LABEL)
+        self._profile_combo.blockSignals(False)
         self._load_settings(sequence.audio_settings if sequence else AudioSettings())
         self._status_label.setText(
             f"Séquence : {sequence.name}" if sequence else "Sélectionnez une séquence."
         )
+
+    def _on_profile_selected(self, profile_name: str) -> None:
+        settings = AUDIO_PROFILES.get(profile_name)
+        if settings is not None:
+            self._load_settings(settings)
 
     def _load_settings(self, settings: AudioSettings) -> None:
         self._noise_cb.setChecked(settings.noise_reduction)

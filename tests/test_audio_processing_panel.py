@@ -46,6 +46,35 @@ def test_panel_enabled_and_loads_settings(qtbot, project_with_sequence):
     assert panel._gain_spin.value() == 4.0
 
 
+def test_selecting_profile_loads_preset_settings(qtbot, project_with_sequence):
+    project, sequence, ffmpeg_service = project_with_sequence
+
+    panel = AudioProcessingPanel(ffmpeg_service)
+    qtbot.addWidget(panel)
+    panel.set_project(project)
+    panel.set_sequence(sequence)
+
+    panel._profile_combo.setCurrentText("Voix faible")
+
+    assert panel._gain_spin.value() == 6.0
+    assert panel._compression_cb.isChecked()
+    assert panel._normalize_cb.isChecked()
+
+
+def test_selecting_sequence_resets_profile_to_custom(qtbot, project_with_sequence):
+    project, sequence, ffmpeg_service = project_with_sequence
+
+    panel = AudioProcessingPanel(ffmpeg_service)
+    qtbot.addWidget(panel)
+    panel.set_project(project)
+    panel.set_sequence(sequence)
+    panel._profile_combo.setCurrentText("Podcast")
+
+    panel.set_sequence(sequence)
+
+    assert panel._profile_combo.currentText() == "Personnalisé"
+
+
 def test_apply_button_processes_sequence(qtbot, project_with_sequence):
     project, sequence, ffmpeg_service = project_with_sequence
 
