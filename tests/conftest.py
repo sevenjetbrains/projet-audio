@@ -1,7 +1,9 @@
-"""Fixtures partagées : génère une courte vidéo de test avec ffmpeg (lavfi)."""
+"""Fixtures partagées : génère une courte vidéo/wav de test."""
 
 import subprocess
+import wave
 
+import numpy as np
 import pytest
 
 from app.config.settings import find_ffmpeg_binaries
@@ -32,5 +34,23 @@ def sample_video(tmp_path_factory, ffmpeg_binaries):
         text=True,
         check=True,
     )
+
+    return str(out_path)
+
+
+@pytest.fixture(scope="session")
+def synthetic_wav_file(tmp_path_factory):
+    """WAV mono 16-bit de 2s (tonalité 440Hz) généré directement, sans ffmpeg."""
+    framerate = 8000
+    t = np.linspace(0, 2, framerate * 2, endpoint=False)
+    samples = (np.sin(2 * np.pi * 440 * t) * 20000).astype(np.int16)
+
+    out_dir = tmp_path_factory.mktemp("synthetic_wav")
+    out_path = out_dir / "synthetic.wav"
+    with wave.open(str(out_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(framerate)
+        wav_file.writeframes(samples.tobytes())
 
     return str(out_path)
