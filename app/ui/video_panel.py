@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -37,6 +38,8 @@ def _video_filter() -> str:
 
 
 class VideoPanel(QWidget):
+    audio_ready = Signal(str, float)
+
     def __init__(self, ffmpeg_binaries: FFmpegBinaries, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._ffprobe_service = FFprobeService(ffmpeg_binaries.ffprobe_path)
@@ -119,6 +122,7 @@ class VideoPanel(QWidget):
         self._progress_bar.hide()
         self._import_button.setEnabled(True)
         self._status_label.setText(f"Audio extrait : {out_wav_path}")
+        self.audio_ready.emit(out_wav_path, self._project.source_video.duration)
 
     def _on_extraction_failed(self, message: str) -> None:
         self._progress_bar.hide()
