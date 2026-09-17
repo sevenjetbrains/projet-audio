@@ -1,0 +1,1 @@
+- [Autonomous phases](feedback_autonomous_phases.md) — finish all AudioCut Studio phases without per-phase confirmation.
