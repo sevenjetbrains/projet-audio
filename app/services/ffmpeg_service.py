@@ -8,9 +8,15 @@ rendent asynchrones pour ne pas geler l'interface Qt.
 
 import re
 import subprocess
+import tempfile
+import wave
 from collections.abc import Callable
+from pathlib import Path
 
 _TIME_PATTERN = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+
+_MP3_BITRATES = {"128", "192", "256", "320"}
+_WAV_SAMPLE_FORMATS = {"16": "pcm_s16le", "24": "pcm_s24le"}
 
 
 class FFmpegExecutionError(RuntimeError):
@@ -37,7 +43,84 @@ class FFmpegService:
             "-acodec", "pcm_s16le",
             out_wav_path,
         ]
+        self._run(cmd, total_duration=total_duration, on_progress=on_progress)
 
+    def cut_audio(self, source_wav_path: str, out_wav_path: str, start: float, end: float) -> None:
+        """Découpe une plage [start, end] (secondes) d'un WAV PCM source, sans le modifier.
+
+        Implémenté par lecture/écriture directe des frames (module stdlib `wave`)
+        plutôt que via ffmpeg -ss/-t : ffmpeg produisait un léger dépassement de
+        durée avec -c copy sur ce type de fichier, alors qu'une découpe PCM directe
+        est exacte à l'échantillon et évite un aller-retour subprocess.
+        """
+        with wave.open(source_wav_path, "rb") as source:
+            framerate = source.getframerate()
+            start_frame = max(0, int(start * framerate))
+            end_frame = min(source.getnframes(), int(end * framerate))
+            n_frames = max(end_frame - start_frame, 0)
+            source.setpos(start_frame)
+            frames = source.readframes(n_frames)
+            params = source.getparams()
+
+        with wave.open(out_wav_path, "wb") as out:
+            out.setparams(params)
+            out.writeframes(frames)
+
+    def concat_audio(self, input_wav_paths: list[str], out_wav_path: str) -> None:
+        """Concatène plusieurs WAV (dans l'ordre donné) en un seul fichier, sans transition."""
+        if not input_wav_paths:
+            raise ValueError("input_wav_paths must not be empty")
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as filelist:
+            for path in input_wav_paths:
+                escaped = Path(path).as_posix().replace("'", "'\\''")
+                filelist.write(f"file '{escaped}'\n")
+            filelist_path = filelist.name
+
+        try:
+            cmd = [
+                self._ffmpeg_path,
+                "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", filelist_path,
+                "-c", "copy",
+                out_wav_path,
+            ]
+            self._run(cmd)
+        finally:
+            Path(filelist_path).unlink(missing_ok=True)
+
+    def export_audio(self, source_wav_path: str, out_path: str, fmt: str, quality: str) -> None:
+        """Réencode un WAV source vers le format/qualité d'export choisis par l'utilisateur."""
+        fmt = fmt.lower()
+
+        if fmt == "wav":
+            sample_format = _WAV_SAMPLE_FORMATS.get(quality)
+            if sample_format is None:
+                raise ValueError(f"Qualité WAV non supportée : {quality}")
+            cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-acodec", sample_format, out_path]
+        elif fmt == "mp3":
+            if quality not in _MP3_BITRATES:
+                raise ValueError(f"Débit MP3 non supporté : {quality}")
+            cmd = [
+                self._ffmpeg_path, "-y", "-i", source_wav_path,
+                "-codec:a", "libmp3lame", "-b:a", f"{quality}k",
+                out_path,
+            ]
+        else:
+            raise ValueError(f"Format d'export non supporté : {fmt}")
+
+        self._run(cmd)
+
+    def _run(
+        self,
+        cmd: list[str],
+        total_duration: float = 0.0,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> None:
         process = subprocess.Popen(
             cmd,
             stderr=subprocess.PIPE,

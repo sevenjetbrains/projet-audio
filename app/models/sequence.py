@@ -10,6 +10,7 @@ class Sequence:
     source_start: float
     source_end: float
     order: int
+    audio_path: str = ""
 
     @property
     def duration(self) -> float:
