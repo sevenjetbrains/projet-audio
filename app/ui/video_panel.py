@@ -75,6 +75,14 @@ class VideoPanel(QWidget):
         layout.addStretch(1)
         self.setLayout(layout)
 
+    @property
+    def project(self):
+        return self._project
+
+    @property
+    def ffmpeg_service(self) -> FFmpegService:
+        return self._ffmpeg_service
+
     def _on_import_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Importer une vidéo", "", _video_filter())
         if not path:
