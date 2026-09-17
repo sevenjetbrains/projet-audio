@@ -15,6 +15,7 @@ from app.services.ffmpeg_service import FFmpegService
 from app.services.ffprobe_service import FFprobeService, ProbeError
 
 PROJECT_FILE_EXTENSION = ".acsproject"
+AUTOSAVE_FILENAME = "autosave.acsproject"
 
 
 class ProjectLoadError(RuntimeError):
@@ -56,6 +57,22 @@ def save_project(project: Project, out_path: str) -> None:
         ],
     }
     Path(out_path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def autosave_project(project: Project) -> str:
+    """Sauvegarde automatique (§33) dans le dossier temp du projet, pour récupération après crash."""
+    out_path = str(Path(project.temp_dir) / AUTOSAVE_FILENAME)
+    save_project(project, out_path)
+    return out_path
+
+
+def find_recoverable_autosaves() -> list[str]:
+    """Liste les autosaves de sessions précédentes, les plus récentes en premier."""
+    if not TEMP_DIR.exists():
+        return []
+    candidates = list(TEMP_DIR.glob(f"project_*/{AUTOSAVE_FILENAME}"))
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return [str(p) for p in candidates]
 
 
 def load_project(path: str, ffprobe_service: FFprobeService, ffmpeg_service: FFmpegService) -> Project:

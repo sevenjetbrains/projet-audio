@@ -1,6 +1,6 @@
 """Fenêtre principale d'AudioCut Studio."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
@@ -18,7 +18,13 @@ from PySide6.QtWidgets import (
 from app.config.constants import APP_NAME
 from app.config.settings import FFmpegBinaries
 from app.services.export_service import ExportError, merge_sequences
-from app.services.project_service import PROJECT_FILE_EXTENSION, ProjectLoadError, load_project, save_project
+from app.services.project_service import (
+    PROJECT_FILE_EXTENSION,
+    autosave_project,
+    find_recoverable_autosaves,
+    load_project,
+    save_project,
+)
 from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
@@ -86,6 +92,32 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._wire_signals()
+
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(2 * 60 * 1000)
+        self._autosave_timer.timeout.connect(self._on_autosave_tick)
+        self._autosave_timer.start()
+
+        QTimer.singleShot(0, self._check_for_recoverable_autosave)
+
+    def _check_for_recoverable_autosave(self) -> None:
+        autosaves = find_recoverable_autosaves()
+        if not autosaves:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "AudioCut Studio",
+            "Un projet non sauvegardé a été trouvé (fermeture inattendue).\n"
+            "Voulez-vous le récupérer ?",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._start_project_load(autosaves[0])
+
+    def _on_autosave_tick(self) -> None:
+        project = self._video_panel.project
+        if project is not None:
+            autosave_project(project)
 
     def _build_menu(self) -> None:
         import_action = QAction("Importer une vidéo…", self)
@@ -221,9 +253,10 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, "Ouvrir un projet", "", f"Projet AudioCut Studio (*{PROJECT_FILE_EXTENSION})"
         )
-        if not path:
-            return
+        if path:
+            self._start_project_load(path)
 
+    def _start_project_load(self, path: str) -> None:
         progress = QProgressDialog("Chargement du projet…", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setCancelButton(None)
