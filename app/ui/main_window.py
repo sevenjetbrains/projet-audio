@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from app.config.constants import APP_NAME
 from app.config.settings import FFmpegBinaries
 from app.services.export_service import ExportError, merge_sequences
+from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
 from app.ui.transport_controls import TransportControls
@@ -32,6 +33,7 @@ class MainWindow(QMainWindow):
         self._waveform_widget = WaveformWidget()
         self._transport_controls = TransportControls()
         self._sequence_list = SequenceListWidget(self._video_panel.ffmpeg_service)
+        self._audio_processing_panel = AudioProcessingPanel(self._video_panel.ffmpeg_service)
 
         self._selection_start_spin = QDoubleSpinBox()
         self._selection_end_spin = QDoubleSpinBox()
@@ -55,12 +57,16 @@ class MainWindow(QMainWindow):
         bottom_layout.addWidget(self._transport_controls, stretch=1)
         bottom_layout.addWidget(self._merge_preview_button)
 
+        middle_layout = QHBoxLayout()
+        middle_layout.addWidget(self._sequence_list, stretch=1)
+        middle_layout.addWidget(self._audio_processing_panel, stretch=1)
+
         central = QWidget()
         layout = QVBoxLayout()
         layout.addWidget(self._video_panel)
         layout.addWidget(self._waveform_widget, stretch=1)
         layout.addLayout(selection_form)
-        layout.addWidget(self._sequence_list, stretch=1)
+        layout.addLayout(middle_layout, stretch=1)
         layout.addLayout(bottom_layout)
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -84,11 +90,15 @@ class MainWindow(QMainWindow):
         self._selection_start_spin.valueChanged.connect(self._on_selection_spin_changed)
         self._selection_end_spin.valueChanged.connect(self._on_selection_spin_changed)
         self._sequence_list.play_requested.connect(self._on_sequence_play_requested)
+        self._sequence_list.sequence_selected.connect(self._on_sequence_selected)
+        self._sequence_list.sequences_changed.connect(self._on_sequences_changed)
+        self._audio_processing_panel.processed.connect(self._sequence_list.refresh)
 
     def _on_audio_ready(self, wav_path: str, duration: float) -> None:
         self._waveform_widget.load(wav_path, duration)
         self._transport_controls.set_source(wav_path)
         self._sequence_list.set_project(self._video_panel.project)
+        self._audio_processing_panel.set_project(self._video_panel.project)
 
         for spin in (self._selection_start_spin, self._selection_end_spin):
             spin.blockSignals(True)
@@ -120,6 +130,12 @@ class MainWindow(QMainWindow):
 
     def _on_sequence_play_requested(self, name: str, audio_path: str) -> None:
         self._transport_controls.set_source(audio_path)
+
+    def _on_sequence_selected(self, sequence_id: str) -> None:
+        self._audio_processing_panel.set_sequence(self._sequence_list.get_sequence(sequence_id))
+
+    def _on_sequences_changed(self) -> None:
+        self._audio_processing_panel.set_sequence(self._sequence_list.current_sequence())
 
     def _on_merge_preview_clicked(self) -> None:
         project = self._video_panel.project

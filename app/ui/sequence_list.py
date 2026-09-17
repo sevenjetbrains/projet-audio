@@ -22,6 +22,7 @@ from app.utils.time_utils import format_timecode
 class SequenceListWidget(QWidget):
     play_requested = Signal(str, str)
     sequences_changed = Signal()
+    sequence_selected = Signal(str)
 
     def __init__(self, ffmpeg_service: FFmpegService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -31,6 +32,7 @@ class SequenceListWidget(QWidget):
         self._list_widget = QListWidget()
         self._list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self._list_widget.model().rowsMoved.connect(self._on_rows_moved)
+        self._list_widget.currentItemChanged.connect(self._on_current_item_changed)
 
         play_button = QPushButton("▶ Lire")
         play_button.clicked.connect(self._on_play_clicked)
@@ -70,18 +72,23 @@ class SequenceListWidget(QWidget):
         self.sequences_changed.emit()
 
     def _refresh(self) -> None:
+        previous_id = self._current_sequence_id()
+
         self._list_widget.blockSignals(True)
         self._list_widget.clear()
         if self._project is not None:
             for sequence in sorted(self._project.sequences, key=lambda seq: seq.order):
+                status = " [traité]" if sequence.processed_audio_path else ""
                 label = (
                     f"{sequence.order + 1}. {sequence.name}   "
                     f"{format_timecode(sequence.source_start)} → {format_timecode(sequence.source_end)}   "
-                    f"({format_timecode(sequence.duration)})"
+                    f"({format_timecode(sequence.duration)}){status}"
                 )
                 item = QListWidgetItem(label)
                 item.setData(Qt.ItemDataRole.UserRole, sequence.id)
                 self._list_widget.addItem(item)
+                if sequence.id == previous_id:
+                    self._list_widget.setCurrentItem(item)
         self._list_widget.blockSignals(False)
 
     def _current_sequence_id(self) -> str | None:
@@ -90,12 +97,30 @@ class SequenceListWidget(QWidget):
             return None
         return item.data(Qt.ItemDataRole.UserRole)
 
+    def get_sequence(self, sequence_id: str):
+        if self._project is None:
+            return None
+        return next((seq for seq in self._project.sequences if seq.id == sequence_id), None)
+
+    def current_sequence(self):
+        sequence_id = self._current_sequence_id()
+        return self.get_sequence(sequence_id) if sequence_id else None
+
+    def refresh(self) -> None:
+        """Rafraîchit l'affichage (ex. après un traitement audio appliqué en externe)."""
+        self._refresh()
+
+    def _on_current_item_changed(self, current, _previous) -> None:
+        if current is None:
+            return
+        self.sequence_selected.emit(current.data(Qt.ItemDataRole.UserRole))
+
     def _on_play_clicked(self) -> None:
         sequence_id = self._current_sequence_id()
         if sequence_id is None or self._project is None:
             return
         sequence = next(seq for seq in self._project.sequences if seq.id == sequence_id)
-        self.play_requested.emit(sequence.name, sequence.audio_path)
+        self.play_requested.emit(sequence.name, sequence.effective_audio_path)
 
     def _on_rename_clicked(self) -> None:
         sequence_id = self._current_sequence_id()
