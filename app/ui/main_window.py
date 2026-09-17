@@ -1,12 +1,15 @@
 """Fenêtre principale d'AudioCut Studio."""
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -15,12 +18,14 @@ from PySide6.QtWidgets import (
 from app.config.constants import APP_NAME
 from app.config.settings import FFmpegBinaries
 from app.services.export_service import ExportError, merge_sequences
+from app.services.project_service import PROJECT_FILE_EXTENSION, ProjectLoadError, load_project, save_project
 from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
 from app.ui.transport_controls import TransportControls
 from app.ui.video_panel import VideoPanel
 from app.ui.waveform_widget import WaveformWidget
+from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
 
 class MainWindow(QMainWindow):
@@ -75,12 +80,27 @@ class MainWindow(QMainWindow):
         self._wire_signals()
 
     def _build_menu(self) -> None:
+        import_action = QAction("Importer une vidéo…", self)
+        import_action.setShortcut(QKeySequence("Ctrl+O"))
+        import_action.triggered.connect(self._video_panel.trigger_import)
+        file_menu = self.menuBar().addMenu("Fichier")
+        file_menu.addAction(import_action)
+
+        save_action = QAction("Sauvegarder le projet…", self)
+        save_action.setShortcut(QKeySequence("Ctrl+S"))
+        save_action.triggered.connect(self._on_save_project_clicked)
+        open_action = QAction("Ouvrir un projet…", self)
+        open_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        open_action.triggered.connect(self._on_open_project_clicked)
+        project_menu = self.menuBar().addMenu("Projet")
+        project_menu.addAction(save_action)
+        project_menu.addAction(open_action)
+
         export_action = QAction("Exporter…", self)
         export_action.setShortcut(QKeySequence("Ctrl+E"))
         export_action.triggered.connect(self._on_export_clicked)
-
-        menu = self.menuBar().addMenu("Export")
-        menu.addAction(export_action)
+        export_menu = self.menuBar().addMenu("Export")
+        export_menu.addAction(export_action)
 
     def _wire_signals(self) -> None:
         self._video_panel.audio_ready.connect(self._on_audio_ready)
@@ -155,3 +175,47 @@ class MainWindow(QMainWindow):
             return
         dialog = ExportDialog(project, self._video_panel.ffmpeg_service, self)
         dialog.exec()
+
+    def _on_save_project_clicked(self) -> None:
+        project = self._video_panel.project
+        if project is None:
+            QMessageBox.warning(self, "AudioCut Studio", "Importez une vidéo avant de sauvegarder un projet.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Sauvegarder le projet", "", f"Projet AudioCut Studio (*{PROJECT_FILE_EXTENSION})"
+        )
+        if not path:
+            return
+        if not path.endswith(PROJECT_FILE_EXTENSION):
+            path += PROJECT_FILE_EXTENSION
+
+        save_project(project, path)
+        QMessageBox.information(self, "AudioCut Studio", f"Projet sauvegardé :\n{path}")
+
+    def _on_open_project_clicked(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Ouvrir un projet", "", f"Projet AudioCut Studio (*{PROJECT_FILE_EXTENSION})"
+        )
+        if not path:
+            return
+
+        progress = QProgressDialog("Chargement du projet…", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.show()
+
+        self._load_worker = FFmpegTaskWorker(
+            lambda: load_project(path, self._video_panel.ffprobe_service, self._video_panel.ffmpeg_service)
+        )
+        self._load_worker.succeeded.connect(lambda project: self._on_project_loaded(project, progress))
+        self._load_worker.failed.connect(lambda message: self._on_project_load_failed(message, progress))
+        self._load_worker.start()
+
+    def _on_project_loaded(self, project, progress: QProgressDialog) -> None:
+        progress.close()
+        self._video_panel.set_loaded_project(project)
+
+    def _on_project_load_failed(self, message: str, progress: QProgressDialog) -> None:
+        progress.close()
+        QMessageBox.critical(self, "AudioCut Studio — Erreur", message)

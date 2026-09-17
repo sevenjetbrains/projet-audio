@@ -83,6 +83,20 @@ class VideoPanel(QWidget):
     def ffmpeg_service(self) -> FFmpegService:
         return self._ffmpeg_service
 
+    @property
+    def ffprobe_service(self) -> FFprobeService:
+        return self._ffprobe_service
+
+    def set_loaded_project(self, project) -> None:
+        """Adopte un Project déjà entièrement régénéré (chargement depuis .acsproject)."""
+        self._project = project
+        self._display_metadata(project.source_video)
+        self._status_label.setText(f"Projet chargé : {project.name}")
+        self.audio_ready.emit(project.original_audio_path, project.source_video.duration)
+
+    def trigger_import(self) -> None:
+        self._on_import_clicked()
+
     def _on_import_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Importer une vidéo", "", _video_filter())
         if not path:

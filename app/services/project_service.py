@@ -1,11 +1,24 @@
-"""Création et gestion du cycle de vie d'un Project (dossier de travail temporaire)."""
+"""Création et gestion du cycle de vie d'un Project, sauvegarde/chargement (.acsproject)."""
 
+import json
+from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
 from app.config.settings import TEMP_DIR
+from app.models.audio_settings import AudioSettings
 from app.models.media import MediaInfo
 from app.models.project import Project
+from app.services import sequence_service
+from app.services.audio_processor import process_sequence
+from app.services.ffmpeg_service import FFmpegService
+from app.services.ffprobe_service import FFprobeService, ProbeError
+
+PROJECT_FILE_EXTENSION = ".acsproject"
+
+
+class ProjectLoadError(RuntimeError):
+    """Erreur utilisateur claire lors du chargement d'un projet."""
 
 
 def create_project_for_video(video_info: MediaInfo) -> Project:
@@ -19,3 +32,61 @@ def create_project_for_video(video_info: MediaInfo) -> Project:
         source_video=video_info,
         temp_dir=str(temp_dir),
     )
+
+
+def save_project(project: Project, out_path: str) -> None:
+    """Sérialise le projet en JSON (.acsproject) : références + paramètres, pas l'audio."""
+    if project.source_video is None:
+        raise ValueError("project.source_video must be set before saving")
+
+    data = {
+        "project_name": project.name,
+        "source_video": project.source_video.path,
+        "sequences": [
+            {
+                "id": seq.id,
+                "name": seq.name,
+                "start": seq.source_start,
+                "end": seq.source_end,
+                "order": seq.order,
+                "audio_settings": asdict(seq.audio_settings),
+            }
+            for seq in sorted(project.sequences, key=lambda s: s.order)
+        ],
+    }
+    Path(out_path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_project(path: str, ffprobe_service: FFprobeService, ffmpeg_service: FFmpegService) -> Project:
+    """Recharge un projet .acsproject : régénère l'audio depuis la vidéo source (§16 : non
+    obligatoire de conserver les fichiers intermédiaires, ils sont recréés)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProjectLoadError("Impossible de lire ce fichier de projet.") from exc
+
+    video_path = data.get("source_video")
+    if not video_path or not Path(video_path).exists():
+        raise ProjectLoadError(f"Le fichier vidéo source est introuvable : {video_path}")
+
+    try:
+        media_info = ffprobe_service.probe(video_path)
+    except ProbeError as exc:
+        raise ProjectLoadError(str(exc)) from exc
+
+    project = create_project_for_video(media_info)
+    project.name = data.get("project_name", project.name)
+
+    original_audio = str(Path(project.temp_dir) / "source.wav")
+    ffmpeg_service.extract_audio(video_path, original_audio, media_info.duration)
+    project.original_audio_path = original_audio
+
+    for seq_data in sorted(data.get("sequences", []), key=lambda s: s["order"]):
+        sequence = sequence_service.add_sequence(
+            project, ffmpeg_service, seq_data["start"], seq_data["end"], name=seq_data["name"]
+        )
+        settings_data = seq_data.get("audio_settings", {})
+        sequence.audio_settings = AudioSettings(**settings_data)
+        process_sequence(project, sequence, ffmpeg_service)
+
+    return project

@@ -8,6 +8,7 @@ from PySide6.QtCore import QThread, Signal
 
 from app.services.export_service import ExportError
 from app.services.ffmpeg_service import FFmpegExecutionError, FFmpegService
+from app.services.project_service import ProjectLoadError
 
 logger = logging.getLogger("audiocut")
 
@@ -60,7 +61,7 @@ class FFmpegTaskWorker(QThread):
     def run(self) -> None:
         try:
             result = self._task()
-        except ExportError as exc:
+        except (ExportError, ProjectLoadError) as exc:
             self.failed.emit(str(exc))
             return
         except FFmpegExecutionError as exc:
