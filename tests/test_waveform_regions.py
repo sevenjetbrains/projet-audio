@@ -170,3 +170,35 @@ def test_clicking_a_region_selects_the_sequence_in_the_list(qtbot, monkeypatch):
     window._waveform_widget.region_clicked.emit("abc")
 
     assert selected == ["abc"]
+
+
+def _double_click(widget, x: float):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    QTest.mouseDClick(widget, Qt.MouseButton.LeftButton, pos=QPoint(int(x), 60))
+
+
+def test_double_click_on_region_emits_double_click_signal_without_extra_seek(waveform):
+    waveform.set_sequence_regions([(1.0, 3.0, "A", "id-a")])
+    doubles, singles, seeks = [], [], []
+    waveform.region_double_clicked.connect(doubles.append)
+    waveform.region_clicked.connect(singles.append)
+    waveform.seek_requested.connect(seeks.append)
+
+    _double_click(waveform, 80)  # 2 s
+
+    assert doubles == ["id-a"]
+    # Selon la plateforme, un double-clic arrive comme « clic, double-clic, relâchement » : au plus UN clic simple
+    # (jamais deux), sinon le double-clic déplacerait deux fois la tête de lecture.
+    assert len(singles) <= 1 and len(seeks) <= 1
+
+
+def test_double_click_outside_regions_does_nothing_special(waveform):
+    waveform.set_sequence_regions([(1.0, 3.0, "A", "id-a")])
+    doubles = []
+    waveform.region_double_clicked.connect(doubles.append)
+
+    _double_click(waveform, 320)
+
+    assert doubles == []

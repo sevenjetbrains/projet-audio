@@ -32,6 +32,7 @@ class SequenceRegion(NamedTuple):
 class WaveformWidget(QWidget):
     seek_requested = Signal(float)
     region_clicked = Signal(str)
+    region_double_clicked = Signal(str)
     selection_changed = Signal(float, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -142,6 +143,16 @@ class WaveformWidget(QWidget):
         if event.button() != Qt.MouseButton.LeftButton or self._duration <= 0:
             return
         self._drag_start_x = event.position().x()
+        self._dragging = False
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() != Qt.MouseButton.LeftButton or self._duration <= 0:
+            return
+        region = self.region_at(min(max(self._x_to_time(event.position().x()), 0.0), self._duration))
+        if region is not None and region.sequence_id:
+            self.region_double_clicked.emit(region.sequence_id)
+        # Le relâchement qui suit ce double-clic ne doit pas être traité comme un nouveau clic simple.
+        self._drag_start_x = None
         self._dragging = False
 
     def mouseMoveEvent(self, event) -> None:

@@ -77,6 +77,15 @@ class TransportControls(QWidget):
     def position_seconds(self) -> float:
         return self._player.position() / 1000.0
 
+    def play(self) -> None:
+        if self._play_button.isEnabled():
+            self._player.play()
+
+    def load_and_play(self, wav_path: str) -> None:
+        """Charge le fichier puis lance directement la lecture."""
+        self.set_source(wav_path)
+        self._player.play()
+
     def stop(self) -> None:
         self._player.stop()
 

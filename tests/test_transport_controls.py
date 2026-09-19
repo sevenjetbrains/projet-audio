@@ -85,3 +85,19 @@ def test_volume_slider_controls_audio_output(transport_controls):
 
     transport_controls.set_volume_percent(250)
     assert transport_controls._audio_output.volume() == pytest.approx(1.0)
+
+
+def test_load_and_play_starts_playback(transport_controls, synthetic_wav_file, qtbot):
+    transport_controls.load_and_play(synthetic_wav_file)
+
+    qtbot.waitUntil(
+        lambda: transport_controls._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+        timeout=5000,
+    )
+    assert "Pause" in transport_controls._play_button.text()
+
+
+def test_play_without_source_is_ignored(transport_controls):
+    transport_controls.play()
+
+    assert transport_controls._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState

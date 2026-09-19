@@ -138,3 +138,23 @@ def test_status_bar_summary_tracks_sequences_and_crossfade(qtbot, monkeypatch):
     project.sequences.pop()
     window._on_sequences_changed()
     assert window._project_summary_label.text() == "1 séquence — durée fusionnée : 00:00:04.000"
+
+
+def test_sequence_play_request_loads_and_plays(qtbot, monkeypatch):
+    window = _window_with_duration(qtbot, monkeypatch)
+    played = []
+    monkeypatch.setattr(window._transport_controls, "load_and_play", played.append)
+
+    window._sequence_list.play_requested.emit("Séquence 1", "C:/x/seq.wav")
+
+    assert played == ["C:/x/seq.wav"]
+
+
+def test_double_click_on_waveform_region_plays_the_sequence(qtbot, monkeypatch):
+    window = _window_with_duration(qtbot, monkeypatch)
+    played = []
+    monkeypatch.setattr(window._sequence_list, "play_sequence", played.append)
+
+    window._waveform_widget.region_double_clicked.emit("seq-1")
+
+    assert played == ["seq-1"]

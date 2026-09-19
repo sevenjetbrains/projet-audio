@@ -26,7 +26,7 @@ python -m app.main
 ## Fonctionnalités
 
 - Import vidéo par dialogue ou par glisser-déposer (un projet .acsproject déposé est ouvert), forme d'onde, lecture avec contrôles de transport (lecture/pause avec Espace, stop, ±5 s, volume) ; touches I / O pour marquer le début / la fin de la sélection à la position de lecture, Entrée pour créer la séquence
-- Séquences existantes affichées en zones colorées, avec leur nom, sur la forme d'onde ; un clic sur une zone sélectionne la séquence
+- Séquences existantes affichées en zones colorées, avec leur nom, sur la forme d'onde ; un clic sur une zone sélectionne la séquence, un double-clic (zone ou ligne de la liste) la lit
 - Création et gestion de séquences (début/fin, réorganisation par glisser-déposer, sélection multiple : suppression, duplication et traitement en lot)
 - Découpage automatique en séquences selon les silences (menu Édition), annulable en une action
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)

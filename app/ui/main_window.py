@@ -266,6 +266,7 @@ class MainWindow(QMainWindow):
         self._transport_controls.position_changed.connect(self._waveform_widget.set_playhead)
         self._waveform_widget.selection_changed.connect(self._on_selection_changed)
         self._waveform_widget.region_clicked.connect(self._sequence_list.select_sequence)
+        self._waveform_widget.region_double_clicked.connect(self._sequence_list.play_sequence)
         self._selection_start_spin.valueChanged.connect(self._on_selection_spin_changed)
         self._selection_end_spin.valueChanged.connect(self._on_selection_spin_changed)
         self._sequence_list.play_requested.connect(self._on_sequence_play_requested)
@@ -387,7 +388,7 @@ class MainWindow(QMainWindow):
         self._project_summary_label.setText(f"{count} séquence{plural} — durée fusionnée : {format_timecode(total)}")
 
     def _on_sequence_play_requested(self, name: str, audio_path: str) -> None:
-        self._transport_controls.set_source(audio_path)
+        self._transport_controls.load_and_play(audio_path)
 
     def _on_sequence_selected(self, sequence_id: str) -> None:
         self._audio_processing_panel.set_sequence(self._sequence_list.get_sequence(sequence_id))
@@ -447,7 +448,7 @@ class MainWindow(QMainWindow):
         except ExportError as exc:
             QMessageBox.warning(self, "AudioCut Studio", str(exc))
             return
-        self._transport_controls.set_source(final_wav)
+        self._transport_controls.load_and_play(final_wav)
 
     def _on_export_clicked(self) -> None:
         project = self._video_panel.project

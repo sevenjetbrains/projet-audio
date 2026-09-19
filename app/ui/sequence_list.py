@@ -44,6 +44,7 @@ class SequenceListWidget(QWidget):
         self._list_widget.model().rowsMoved.connect(self._on_rows_moved)
         self._list_widget.currentItemChanged.connect(self._on_current_item_changed)
         self._list_widget.itemSelectionChanged.connect(self._on_selection_changed)
+        self._list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
 
         self._play_button = QPushButton("▶ Lire")
         self._play_button.clicked.connect(self._on_play_clicked)
@@ -189,6 +190,16 @@ class SequenceListWidget(QWidget):
         if current is None:
             return
         self.sequence_selected.emit(current.data(Qt.ItemDataRole.UserRole))
+
+    def play_sequence(self, sequence_id: str) -> None:
+        """Sélectionne la séquence puis demande sa lecture (double-clic, bouton Lire)."""
+        self.select_sequence(sequence_id)
+        sequence = self.get_sequence(sequence_id)
+        if sequence is not None:
+            self.play_requested.emit(sequence.name, sequence.effective_audio_path)
+
+    def _on_item_double_clicked(self, item) -> None:
+        self.play_sequence(item.data(Qt.ItemDataRole.UserRole))
 
     def _on_play_clicked(self) -> None:
         sequence = self.current_sequence()

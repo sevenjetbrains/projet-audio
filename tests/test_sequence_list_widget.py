@@ -209,3 +209,38 @@ def test_select_unknown_sequence_changes_nothing(widget_with_project):
     widget.select_sequence("inconnu")
 
     assert [seq.id for seq in widget.selected_sequences()] == [project.sequences[0].id]
+
+
+def test_play_sequence_selects_and_requests_playback(qtbot, widget_with_project):
+    widget, project = widget_with_project
+    _add_three(widget)
+    target = project.sequences[2]
+    played = []
+    widget.play_requested.connect(lambda name, path: played.append((name, path)))
+
+    widget.play_sequence(target.id)
+
+    assert played == [(target.name, target.effective_audio_path)]
+    assert widget.current_sequence().id == target.id
+
+
+def test_double_click_on_list_item_plays_it(qtbot, widget_with_project):
+    widget, project = widget_with_project
+    _add_three(widget)
+    played = []
+    widget.play_requested.connect(lambda name, path: played.append(name))
+
+    widget._list_widget.itemDoubleClicked.emit(widget._list_widget.item(1))
+
+    assert played == [project.sequences[1].name]
+
+
+def test_play_unknown_sequence_does_nothing(widget_with_project):
+    widget, _project = widget_with_project
+    _add_three(widget)
+    played = []
+    widget.play_requested.connect(lambda *a: played.append(a))
+
+    widget.play_sequence("inconnu")
+
+    assert played == []
