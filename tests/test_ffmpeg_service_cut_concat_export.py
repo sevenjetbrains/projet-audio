@@ -100,6 +100,21 @@ def test_export_audio_rejects_invalid_quality(ffmpeg_binaries, extracted_source_
             service.export_audio(extracted_source_wav, str(tmp_path / f"out.{fmt}"), fmt, "999")
 
 
+def test_export_audio_ogg_and_opus(ffmpeg_binaries, extracted_source_wav, tmp_path):
+    service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
+    for fmt, quality in (("ogg", "5"), ("opus", "96")):
+        out_path = tmp_path / f"export.{fmt}"
+        service.export_audio(extracted_source_wav, str(out_path), fmt, quality)
+        assert out_path.read_bytes()[:4] == b"OggS"
+
+
+def test_export_audio_rejects_invalid_ogg_opus_quality(ffmpeg_binaries, extracted_source_wav, tmp_path):
+    service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
+    for fmt in ("ogg", "opus"):
+        with pytest.raises(ValueError):
+            service.export_audio(extracted_source_wav, str(tmp_path / f"out.{fmt}"), fmt, "999")
+
+
 def test_export_audio_rejects_unknown_format(ffmpeg_binaries, extracted_source_wav, tmp_path):
     service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
     with pytest.raises(ValueError):

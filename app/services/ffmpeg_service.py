@@ -22,6 +22,8 @@ _MP3_BITRATES = {"128", "192", "256", "320"}
 _WAV_SAMPLE_FORMATS = {"16": "pcm_s16le", "24": "pcm_s24le"}
 _FLAC_SAMPLE_FORMATS = {"16": "s16", "24": "s32"}
 _AAC_BITRATES = {"128", "192", "256", "320"}
+_OGG_QUALITIES = {"3", "5", "7"}
+_OPUS_BITRATES = {"64", "96", "128", "192"}
 
 
 class FFmpegExecutionError(RuntimeError):
@@ -192,6 +194,14 @@ class FFmpegService:
             if quality not in _AAC_BITRATES:
                 raise ValueError(f"Débit AAC non supporté : {quality}")
             cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-codec:a", "aac", "-b:a", f"{quality}k", out_path]
+        elif fmt == "ogg":
+            if quality not in _OGG_QUALITIES:
+                raise ValueError(f"Qualité OGG non supportée : {quality}")
+            cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-codec:a", "libvorbis", "-q:a", quality, out_path]
+        elif fmt == "opus":
+            if quality not in _OPUS_BITRATES:
+                raise ValueError(f"Débit Opus non supporté : {quality}")
+            cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-codec:a", "libopus", "-b:a", f"{quality}k", out_path]
         else:
             raise ValueError(f"Format d'export non supporté : {fmt}")
 
