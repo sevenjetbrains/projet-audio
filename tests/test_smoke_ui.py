@@ -113,3 +113,28 @@ def test_enter_shortcut_creates_sequence_from_selection(qtbot, monkeypatch):
 
     window._on_create_sequence_clicked()
     assert calls == [(1.0, 4.0)]
+
+
+def test_status_bar_summary_tracks_sequences_and_crossfade(qtbot, monkeypatch):
+    from app.models.project import Project
+    from app.models.sequence import Sequence
+
+    window = _window_with_duration(qtbot, monkeypatch)
+    assert window._project_summary_label.text() == "Aucun projet"
+
+    project = Project(name="demo")
+    project.sequences = [
+        Sequence(id="a", name="A", source_start=0.0, source_end=4.0, order=0),
+        Sequence(id="b", name="B", source_start=10.0, source_end=16.0, order=1),
+    ]
+    monkeypatch.setattr(type(window._video_panel), "project", property(lambda self: project))
+
+    window._update_project_summary()
+    assert window._project_summary_label.text() == "2 séquences — durée fusionnée : 00:00:10.000"
+
+    window._crossfade_spin.setValue(1.0)
+    assert window._project_summary_label.text() == "2 séquences — durée fusionnée : 00:00:09.000"
+
+    project.sequences.pop()
+    window._on_sequences_changed()
+    assert window._project_summary_label.text() == "1 séquence — durée fusionnée : 00:00:04.000"

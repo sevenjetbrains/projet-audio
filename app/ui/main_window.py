@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QLabel,
     QProgressDialog,
     QPushButton,
     QVBoxLayout,
@@ -33,6 +34,7 @@ from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
 from app.ui.transport_controls import TransportControls
 from app.ui.video_panel import VideoPanel
+from app.utils.time_utils import format_timecode
 from app.ui.waveform_widget import WaveformWidget
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
@@ -92,6 +94,10 @@ class MainWindow(QMainWindow):
         layout.addLayout(bottom_layout)
         central.setLayout(layout)
         self.setCentralWidget(central)
+
+        self._project_summary_label = QLabel()
+        self.statusBar().addPermanentWidget(self._project_summary_label)
+        self._update_project_summary()
 
         self._build_menu()
         self._wire_signals()
@@ -191,6 +197,7 @@ class MainWindow(QMainWindow):
         self._crossfade_spin.blockSignals(True)
         self._crossfade_spin.setValue(self._video_panel.project.crossfade_duration)
         self._crossfade_spin.blockSignals(False)
+        self._update_project_summary()
 
         for spin in (self._selection_start_spin, self._selection_end_spin):
             spin.blockSignals(True)
@@ -238,6 +245,21 @@ class MainWindow(QMainWindow):
         project = self._video_panel.project
         if project is not None:
             project.crossfade_duration = value
+        self._update_project_summary()
+
+    def _update_project_summary(self) -> None:
+        """Barre d'état : nombre de séquences et durée totale estimée du résultat fusionné."""
+        project = self._video_panel.project
+        if project is None:
+            self._project_summary_label.setText("Aucun projet")
+            return
+        count = len(project.sequences)
+        total = sum(seq.duration for seq in project.sequences)
+        if count > 1:
+            total -= project.crossfade_duration * (count - 1)
+        total = max(total, 0.0)
+        plural = "s" if count > 1 else ""
+        self._project_summary_label.setText(f"{count} séquence{plural} — durée fusionnée : {format_timecode(total)}")
 
     def _on_sequence_play_requested(self, name: str, audio_path: str) -> None:
         self._transport_controls.set_source(audio_path)
@@ -246,6 +268,7 @@ class MainWindow(QMainWindow):
         self._audio_processing_panel.set_sequence(self._sequence_list.get_sequence(sequence_id))
 
     def _on_sequences_changed(self) -> None:
+        self._update_project_summary()
         self._audio_processing_panel.set_sequence(self._sequence_list.current_sequence())
 
     def _on_merge_preview_clicked(self) -> None:
@@ -283,6 +306,7 @@ class MainWindow(QMainWindow):
 
         save_project(project, path)
         add_recent_project(path)
+        self.statusBar().showMessage(f"Projet sauvegardé : {path}", 5000)
         QMessageBox.information(self, "AudioCut Studio", f"Projet sauvegardé :\n{path}")
 
     def _on_open_project_clicked(self) -> None:
