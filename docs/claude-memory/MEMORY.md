@@ -1,1 +1,3 @@
 - [Autonomous phases](feedback_autonomous_phases.md) — finish all AudioCut Studio phases without per-phase confirmation.
+- [État du projet](project_status.md) — avancement, prochaine étape, pièges connus
+- [Commit/push autonomes](feedback_commit_push_autonomy.md) — commit + push après chaque fonctionnalité, sans demander
