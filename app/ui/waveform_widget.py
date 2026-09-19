@@ -2,7 +2,7 @@
 
 import numpy as np
 from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from app.audio.waveform import compute_peaks
@@ -13,6 +13,9 @@ _DRAG_THRESHOLD_PX = 4
 _MIN_VIEW_SPAN_SECONDS = 0.2
 _ZOOM_IN_FACTOR = 0.8
 _ZOOM_OUT_FACTOR = 1.25
+# Teintes (HSV) des séquences déjà créées, alternées pour distinguer deux séquences voisines.
+_REGION_HUES = (30, 130, 280, 340, 190, 60)
+_REGION_ALPHA = 55
 
 
 class WaveformWidget(QWidget):
@@ -33,6 +36,7 @@ class WaveformWidget(QWidget):
 
         self._playhead = 0.0
         self._selection: tuple[float, float] | None = None
+        self._regions: list[tuple[float, float, str]] = []
         self._pending_selection: tuple[float, float] | None = None
         self._drag_start_x: float | None = None
         self._dragging = False
@@ -62,6 +66,11 @@ class WaveformWidget(QWidget):
         self._worker.peaks_ready.connect(self._on_peaks_ready)
         self._worker.failed.connect(self._on_peaks_failed)
         self._worker.start()
+
+    def set_sequence_regions(self, regions: list[tuple[float, float, str]]) -> None:
+        """Séquences existantes (début, fin en secondes de la source, nom) affichées en zones colorées."""
+        self._regions = list(regions)
+        self.update()
 
     def set_playhead(self, seconds: float) -> None:
         self._playhead = seconds
@@ -171,6 +180,22 @@ class WaveformWidget(QWidget):
 
     # --- Rendu -------------------------------------------------------------
 
+    def _paint_regions(self, painter: QPainter, width: int, height: int) -> None:
+        metrics = QFontMetrics(painter.font())
+        for index, (start, end, name) in enumerate(self._regions):
+            x1 = max(self._time_to_x(start), 0.0)
+            x2 = min(self._time_to_x(end), float(width))
+            if x2 <= x1:
+                continue  # hors de la zone visible (zoom)
+            color = QColor.fromHsv(_REGION_HUES[index % len(_REGION_HUES)], 200, 230, _REGION_ALPHA)
+            painter.fillRect(QRectF(x1, 0, x2 - x1, height), color)
+
+            label_width = int(x2 - x1) - 6
+            if label_width > 12:
+                painter.setPen(QColor(self._theme.waveform_text))
+                text = metrics.elidedText(name, Qt.TextElideMode.ElideRight, label_width)
+                painter.drawText(int(x1) + 3, metrics.ascent() + 2, text)
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(self._theme.waveform_background))
@@ -185,6 +210,8 @@ class WaveformWidget(QWidget):
         height = self.height()
         mid_y = height / 2
         n = len(self._peaks)
+
+        self._paint_regions(painter, width, height)
 
         sel = self._pending_selection if self._dragging else self._selection
         if sel:

@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
         self._transport_controls.set_source(wav_path)
         self._sequence_list.set_project(self._video_panel.project)
         self._audio_processing_panel.set_project(self._video_panel.project)
+        self._update_waveform_regions()
         self._crossfade_spin.blockSignals(True)
         self._crossfade_spin.setValue(self._video_panel.project.crossfade_duration)
         self._crossfade_spin.blockSignals(False)
@@ -390,7 +391,15 @@ class MainWindow(QMainWindow):
     def _on_sequence_selected(self, sequence_id: str) -> None:
         self._audio_processing_panel.set_sequence(self._sequence_list.get_sequence(sequence_id))
 
+    def _update_waveform_regions(self) -> None:
+        project = self._video_panel.project
+        sequences = sorted(project.sequences, key=lambda seq: seq.order) if project is not None else []
+        self._waveform_widget.set_sequence_regions(
+            [(seq.source_start, seq.source_end, seq.name) for seq in sequences]
+        )
+
     def _on_sequences_changed(self) -> None:
+        self._update_waveform_regions()
         self._update_project_summary()
         self._mark_dirty()
         self._audio_processing_panel.set_sequence(self._sequence_list.current_sequence())
