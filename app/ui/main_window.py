@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config.constants import APP_NAME
+from app.config.constants import APP_NAME, SUPPORTED_VIDEO_FORMATS
 from app.config.settings import FFmpegBinaries
 from app.config.themes import THEMES, get_theme, load_stylesheet, load_theme_preference, save_theme_preference
 from app.services.export_service import ExportError, merge_sequences
@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1200, 800)
+        self.setAcceptDrops(True)
 
         self._video_panel = VideoPanel(ffmpeg_binaries)
         self._waveform_widget = WaveformWidget()
@@ -118,6 +119,38 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
 
         QTimer.singleShot(0, self._check_for_recoverable_autosave)
+
+    @staticmethod
+    def _dropped_path(mime_data) -> tuple[str, str] | None:
+        """Premier fichier déposé exploitable : ("video", chemin) ou ("project", chemin)."""
+        for url in mime_data.urls():
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            suffix = Path(path).suffix.lower()
+            if suffix in SUPPORTED_VIDEO_FORMATS:
+                return "video", path
+            if suffix == PROJECT_FILE_EXTENSION:
+                return "project", path
+        return None
+
+    def dragEnterEvent(self, event) -> None:
+        if self._dropped_path(event.mimeData()) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:
+        dropped = self._dropped_path(event.mimeData())
+        if dropped is None:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        kind, path = dropped
+        if kind == "video":
+            self._video_panel.import_video(path)
+        else:
+            self._start_project_load(path)
 
     def _check_for_recoverable_autosave(self) -> None:
         autosaves = find_recoverable_autosaves()

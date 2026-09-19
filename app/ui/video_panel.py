@@ -99,7 +99,17 @@ class VideoPanel(QWidget):
 
     def _on_import_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Importer une vidéo", "", _video_filter())
-        if not path:
+        if path:
+            self.import_video(path)
+
+    @property
+    def is_busy(self) -> bool:
+        """Vrai pendant l'extraction audio (un nouvel import doit alors être refusé)."""
+        return not self._import_button.isEnabled()
+
+    def import_video(self, path: str) -> None:
+        """Analyse la vidéo, crée le projet associé et lance l'extraction audio."""
+        if self.is_busy:
             return
 
         try:
