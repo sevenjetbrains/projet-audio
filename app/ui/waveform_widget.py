@@ -1,5 +1,7 @@
 """Widget waveform custom (QPainter) : affichage, sélection à la souris, zoom, tête de lecture."""
 
+from typing import NamedTuple
+
 import numpy as np
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
@@ -18,8 +20,18 @@ _REGION_HUES = (30, 130, 280, 340, 190, 60)
 _REGION_ALPHA = 55
 
 
+class SequenceRegion(NamedTuple):
+    """Zone d'une séquence sur la forme d'onde (temps en secondes dans l'audio source)."""
+
+    start: float
+    end: float
+    name: str
+    sequence_id: str = ""
+
+
 class WaveformWidget(QWidget):
     seek_requested = Signal(float)
+    region_clicked = Signal(str)
     selection_changed = Signal(float, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -36,7 +48,7 @@ class WaveformWidget(QWidget):
 
         self._playhead = 0.0
         self._selection: tuple[float, float] | None = None
-        self._regions: list[tuple[float, float, str]] = []
+        self._regions: list[SequenceRegion] = []
         self._pending_selection: tuple[float, float] | None = None
         self._drag_start_x: float | None = None
         self._dragging = False
@@ -67,10 +79,17 @@ class WaveformWidget(QWidget):
         self._worker.failed.connect(self._on_peaks_failed)
         self._worker.start()
 
-    def set_sequence_regions(self, regions: list[tuple[float, float, str]]) -> None:
-        """Séquences existantes (début, fin en secondes de la source, nom) affichées en zones colorées."""
-        self._regions = list(regions)
+    def set_sequence_regions(self, regions: list[tuple]) -> None:
+        """Séquences existantes (début, fin, nom[, id]) affichées en zones colorées et cliquables."""
+        self._regions = [SequenceRegion(*region) for region in regions]
         self.update()
+
+    def region_at(self, seconds: float) -> SequenceRegion | None:
+        """Séquence affichée au-dessus des autres au temps donné (la dernière dessinée), ou None."""
+        for region in reversed(self._regions):
+            if region.start <= seconds <= region.end:
+                return region
+        return None
 
     def set_playhead(self, seconds: float) -> None:
         self._playhead = seconds
@@ -149,6 +168,9 @@ class WaveformWidget(QWidget):
         else:
             seek_time = min(max(self._x_to_time(event.position().x()), 0.0), self._duration)
             self.seek_requested.emit(seek_time)
+            region = self.region_at(seek_time)
+            if region is not None and region.sequence_id:
+                self.region_clicked.emit(region.sequence_id)
 
         self._drag_start_x = None
         self._dragging = False
@@ -182,7 +204,7 @@ class WaveformWidget(QWidget):
 
     def _paint_regions(self, painter: QPainter, width: int, height: int) -> None:
         metrics = QFontMetrics(painter.font())
-        for index, (start, end, name) in enumerate(self._regions):
+        for index, (start, end, name, _sequence_id) in enumerate(self._regions):
             x1 = max(self._time_to_x(start), 0.0)
             x2 = min(self._time_to_x(end), float(width))
             if x2 <= x1:

@@ -110,6 +110,17 @@ class SequenceListWidget(QWidget):
 
         self._push_command(f"Créer {label}", redo_fn=redo, undo_fn=undo)
 
+    def select_sequence(self, sequence_id: str) -> None:
+        """Sélectionne (seule) la séquence d'identifiant donné et la rend visible ; sans effet si inconnue."""
+        for row in range(self._list_widget.count()):
+            item = self._list_widget.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) == sequence_id:
+                self._list_widget.clearSelection()
+                self._list_widget.setCurrentItem(item)
+                item.setSelected(True)
+                self._list_widget.scrollToItem(item)
+                return
+
     def _refresh(self) -> None:
         previous_id = self._current_sequence_id()
 

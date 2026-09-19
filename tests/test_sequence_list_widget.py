@@ -187,3 +187,25 @@ def test_duplicate_multiple_creates_copies_and_undo_removes_them(widget_with_pro
 
     widget.undo_stack.undo()
     assert len(project.sequences) == 3
+
+
+def test_select_sequence_selects_only_that_row(widget_with_project):
+    widget, project = widget_with_project
+    _add_three(widget)
+    _select_rows(widget, [0, 2])
+    target = project.sequences[1]
+
+    widget.select_sequence(target.id)
+
+    assert [seq.id for seq in widget.selected_sequences()] == [target.id]
+    assert widget.current_sequence().id == target.id
+
+
+def test_select_unknown_sequence_changes_nothing(widget_with_project):
+    widget, project = widget_with_project
+    _add_three(widget)
+    _select_rows(widget, [0])
+
+    widget.select_sequence("inconnu")
+
+    assert [seq.id for seq in widget.selected_sequences()] == [project.sequences[0].id]

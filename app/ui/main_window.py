@@ -265,6 +265,7 @@ class MainWindow(QMainWindow):
         self._waveform_widget.seek_requested.connect(self._transport_controls.set_position_seconds)
         self._transport_controls.position_changed.connect(self._waveform_widget.set_playhead)
         self._waveform_widget.selection_changed.connect(self._on_selection_changed)
+        self._waveform_widget.region_clicked.connect(self._sequence_list.select_sequence)
         self._selection_start_spin.valueChanged.connect(self._on_selection_spin_changed)
         self._selection_end_spin.valueChanged.connect(self._on_selection_spin_changed)
         self._sequence_list.play_requested.connect(self._on_sequence_play_requested)
@@ -395,7 +396,7 @@ class MainWindow(QMainWindow):
         project = self._video_panel.project
         sequences = sorted(project.sequences, key=lambda seq: seq.order) if project is not None else []
         self._waveform_widget.set_sequence_regions(
-            [(seq.source_start, seq.source_end, seq.name) for seq in sequences]
+            [(seq.source_start, seq.source_end, seq.name, seq.id) for seq in sequences]
         )
 
     def _on_sequences_changed(self) -> None:
