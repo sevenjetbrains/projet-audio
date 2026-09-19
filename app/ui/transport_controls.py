@@ -68,6 +68,10 @@ class TransportControls(QWidget):
         for button in (self._play_button, self._stop_button, self._back_button, self._forward_button):
             button.setEnabled(True)
 
+    @property
+    def position_seconds(self) -> float:
+        return self._player.position() / 1000.0
+
     def stop(self) -> None:
         self._player.stop()
 

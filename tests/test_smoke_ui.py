@@ -45,3 +45,51 @@ def test_recent_projects_menu_empty(qtbot, monkeypatch):
 
     window._populate_recent_menu()
     assert [(a.text(), a.isEnabled()) for a in window._recent_menu.actions()] == [("(aucun)", False)]
+
+
+def _window_with_duration(qtbot, monkeypatch, duration=10.0):
+    monkeypatch.setattr("app.ui.main_window.find_recoverable_autosaves", lambda: [])
+    window = MainWindow(find_ffmpeg_binaries())
+    qtbot.addWidget(window)
+    for spin in (window._selection_start_spin, window._selection_end_spin):
+        spin.setRange(0.0, duration)
+    return window
+
+
+def test_mark_in_out_shortcuts_set_selection_from_playhead(qtbot, monkeypatch):
+    window = _window_with_duration(qtbot, monkeypatch)
+    position = {"value": 2.0}
+    monkeypatch.setattr(type(window._transport_controls), "position_seconds", property(lambda self: position["value"]))
+
+    window._mark_selection_start()
+    position["value"] = 6.5
+    window._mark_selection_end()
+
+    assert window._selection_start_spin.value() == 2.0
+    assert window._selection_end_spin.value() == 6.5
+
+
+def test_mark_in_after_out_pushes_end_forward(qtbot, monkeypatch):
+    window = _window_with_duration(qtbot, monkeypatch)
+    position = {"value": 3.0}
+    monkeypatch.setattr(type(window._transport_controls), "position_seconds", property(lambda self: position["value"]))
+    window._mark_selection_end()
+
+    position["value"] = 8.0
+    window._mark_selection_start()
+
+    assert window._selection_start_spin.value() == 8.0
+    assert window._selection_end_spin.value() == 8.0
+
+
+def test_mark_out_before_in_pulls_start_back(qtbot, monkeypatch):
+    window = _window_with_duration(qtbot, monkeypatch)
+    position = {"value": 5.0}
+    monkeypatch.setattr(type(window._transport_controls), "position_seconds", property(lambda self: position["value"]))
+    window._mark_selection_start()
+
+    position["value"] = 1.0
+    window._mark_selection_end()
+
+    assert window._selection_start_spin.value() == 1.0
+    assert window._selection_end_spin.value() == 1.0

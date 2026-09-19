@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
@@ -95,6 +95,9 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._wire_signals()
+
+        QShortcut(QKeySequence(Qt.Key.Key_I), self, activated=self._mark_selection_start)
+        QShortcut(QKeySequence(Qt.Key.Key_O), self, activated=self._mark_selection_end)
 
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(2 * 60 * 1000)
@@ -201,6 +204,20 @@ class MainWindow(QMainWindow):
         self._selection_end_spin.setValue(end)
         self._selection_start_spin.blockSignals(False)
         self._selection_end_spin.blockSignals(False)
+
+    def _mark_selection_start(self) -> None:
+        """Raccourci I : place le début de la sélection à la position de lecture."""
+        position = min(self._transport_controls.position_seconds, self._selection_start_spin.maximum())
+        if self._selection_end_spin.value() < position:
+            self._selection_end_spin.setValue(position)
+        self._selection_start_spin.setValue(position)
+
+    def _mark_selection_end(self) -> None:
+        """Raccourci O : place la fin de la sélection à la position de lecture."""
+        position = min(self._transport_controls.position_seconds, self._selection_end_spin.maximum())
+        if self._selection_start_spin.value() > position:
+            self._selection_start_spin.setValue(position)
+        self._selection_end_spin.setValue(position)
 
     def _on_selection_spin_changed(self) -> None:
         start = self._selection_start_spin.value()
