@@ -8,3 +8,4 @@ logs/*
 !logs/.gitkeep
 .pytest_cache/
 recent_projects.json
+theme.json

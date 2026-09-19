@@ -6,6 +6,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget
 
 from app.audio.waveform import compute_peaks
+from app.config.themes import THEMES, Theme, get_theme
 from app.workers.waveform_worker import WaveformWorker
 
 _DRAG_THRESHOLD_PX = 4
@@ -37,8 +38,13 @@ class WaveformWidget(QWidget):
         self._dragging = False
 
         self._worker: WaveformWorker | None = None
+        self._theme: Theme = get_theme("")
 
     # --- API publique ---------------------------------------------------
+
+    def set_theme(self, theme: Theme) -> None:
+        self._theme = theme
+        self.update()
 
     def load(self, wav_path: str, duration: float) -> None:
         self._wav_path = wav_path
@@ -167,10 +173,10 @@ class WaveformWidget(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#252526"))
+        painter.fillRect(self.rect(), QColor(self._theme.waveform_background))
 
         if self._peaks is None or len(self._peaks) == 0:
-            painter.setPen(QColor("#999999"))
+            painter.setPen(QColor(self._theme.waveform_text))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._status_text)
             painter.end()
             return
@@ -186,7 +192,7 @@ class WaveformWidget(QWidget):
             x2 = self._time_to_x(sel[1])
             painter.fillRect(QRectF(x1, 0, x2 - x1, height), QColor(79, 195, 247, 60))
 
-        painter.setPen(QColor("#4fc3f7"))
+        painter.setPen(QColor(self._theme.waveform_color))
         for i in range(n):
             x = int(i * width / n)
             min_v, max_v = self._peaks[i]
@@ -197,7 +203,7 @@ class WaveformWidget(QWidget):
         if self._duration > 0:
             px = self._time_to_x(self._playhead)
             if 0 <= px <= width:
-                painter.setPen(QColor("#ff5252"))
+                painter.setPen(QColor(self._theme.playhead_color))
                 painter.drawLine(int(px), 0, int(px), height)
 
         painter.end()

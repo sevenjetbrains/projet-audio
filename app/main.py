@@ -4,8 +4,9 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.config.settings import PROJECT_ROOT, find_ffmpeg_binaries
+from app.config.settings import find_ffmpeg_binaries
 from app.config.settings import FFmpegNotFoundError
+from app.config.themes import get_theme, load_stylesheet, load_theme_preference
 from app.ui.main_window import MainWindow
 from app.utils.logger import setup_logging
 
@@ -16,9 +17,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
 
-    qss_path = PROJECT_ROOT / "resources" / "styles" / "dark_theme.qss"
-    if qss_path.exists():
-        app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
+    app.setStyleSheet(load_stylesheet(get_theme(load_theme_preference())))
 
     try:
         binaries = find_ffmpeg_binaries()

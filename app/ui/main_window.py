@@ -3,8 +3,9 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from app.config.constants import APP_NAME
 from app.config.settings import FFmpegBinaries
+from app.config.themes import THEMES, get_theme, load_stylesheet, load_theme_preference, save_theme_preference
 from app.services.export_service import ExportError, merge_sequences
 from app.services.project_service import (
     PROJECT_FILE_EXTENSION,
@@ -102,6 +104,7 @@ class MainWindow(QMainWindow):
         self._update_project_summary()
 
         self._build_menu()
+        self._build_theme_menu()
         self._wire_signals()
 
         QShortcut(QKeySequence(Qt.Key.Key_I), self, activated=self._mark_selection_start)
@@ -182,6 +185,29 @@ class MainWindow(QMainWindow):
             action = self._recent_menu.addAction(Path(path).name)
             action.setToolTip(path)
             action.triggered.connect(lambda _checked=False, p=path: self._start_project_load(p))
+
+    def _build_theme_menu(self) -> None:
+        view_menu = self.menuBar().addMenu("Affichage")
+        theme_menu = view_menu.addMenu("Thème")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        current = get_theme(load_theme_preference()).name
+        for name in THEMES:
+            action = theme_menu.addAction(name)
+            action.setCheckable(True)
+            action.setChecked(name == current)
+            action.triggered.connect(lambda _checked=False, n=name: self.apply_theme(n))
+            group.addAction(action)
+        self._waveform_widget.set_theme(get_theme(current))
+
+    def apply_theme(self, name: str) -> None:
+        """Applique le thème à toute l'application et le mémorise pour le prochain lancement."""
+        theme = get_theme(name)
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(load_stylesheet(theme))
+        self._waveform_widget.set_theme(theme)
+        save_theme_preference(theme.name)
 
     def _wire_signals(self) -> None:
         self._video_panel.audio_ready.connect(self._on_audio_ready)

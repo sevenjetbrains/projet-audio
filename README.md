@@ -30,6 +30,7 @@ python -m app.main
 - Découpage automatique en séquences selon les silences (menu Édition), annulable en une action
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)
 - Profils prédéfinis : Voix parlée, Interview, Podcast, Conférence, Enregistrement microphone, Voix faible
+- Thèmes sombre et clair (menu Affichage), choix mémorisé
 - Barre d'état : nombre de séquences et durée fusionnée estimée
 - Suppression des silences et fusion avec fondu enchaîné (crossfade)
 - Export de la fusion (ou d'un fichier par séquence) en WAV, MP3, FLAC, M4A (AAC), OGG ou Opus
