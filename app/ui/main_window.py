@@ -29,7 +29,9 @@ from app.services.project_service import (
     save_project,
 )
 from app.services.recent_projects import add_recent_project, load_recent_projects
+from app.services.sequence_service import create_sequences_from_silences
 from app.ui.audio_processing_panel import AudioProcessingPanel
+from app.ui.auto_split_dialog import AutoSplitDialog
 from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
 from app.ui.transport_controls import TransportControls
@@ -147,6 +149,10 @@ class MainWindow(QMainWindow):
         edit_menu = self.menuBar().addMenu("Édition")
         edit_menu.addAction(undo_action)
         edit_menu.addAction(redo_action)
+        edit_menu.addSeparator()
+        auto_split_action = QAction("Découper automatiquement selon les silences…", self)
+        auto_split_action.triggered.connect(self._on_auto_split_clicked)
+        edit_menu.addAction(auto_split_action)
 
         save_action = QAction("Sauvegarder le projet…", self)
         save_action.setShortcut(QKeySequence("Ctrl+S"))
@@ -271,6 +277,39 @@ class MainWindow(QMainWindow):
     def _on_sequences_changed(self) -> None:
         self._update_project_summary()
         self._audio_processing_panel.set_sequence(self._sequence_list.current_sequence())
+
+    def _on_auto_split_clicked(self) -> None:
+        project = self._video_panel.project
+        if project is None or not project.original_audio_path:
+            QMessageBox.warning(self, "AudioCut Studio", "Importez une vidéo avant de découper automatiquement.")
+            return
+        dialog = AutoSplitDialog(self)
+        if dialog.exec() != AutoSplitDialog.DialogCode.Accepted:
+            return
+        params = dialog.params()
+
+        progress = QProgressDialog("Détection des silences et découpage…", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.show()
+
+        service = self._video_panel.ffmpeg_service
+        self._split_worker = FFmpegTaskWorker(lambda: create_sequences_from_silences(project, service, params))
+        self._split_worker.succeeded.connect(lambda sequences: self._on_auto_split_done(sequences, progress))
+        self._split_worker.failed.connect(lambda message: self._on_auto_split_failed(message, progress))
+        self._split_worker.start()
+
+    def _on_auto_split_done(self, sequences: list, progress: QProgressDialog) -> None:
+        progress.close()
+        if not sequences:
+            QMessageBox.information(self, "AudioCut Studio", "Aucun passage détecté avec ces réglages.")
+            return
+        self._sequence_list.add_sequences(sequences)
+        self.statusBar().showMessage(f"{len(sequences)} séquences créées automatiquement.", 5000)
+
+    def _on_auto_split_failed(self, message: str, progress: QProgressDialog) -> None:
+        progress.close()
+        QMessageBox.critical(self, "AudioCut Studio — Erreur", message)
 
     def _on_merge_preview_clicked(self) -> None:
         project = self._video_panel.project

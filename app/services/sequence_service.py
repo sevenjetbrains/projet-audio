@@ -10,9 +10,11 @@ les appelants qui n'ont pas besoin d'annulation (chargement de projet, tests).
 """
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+from app.audio.silence_detection import compute_keep_ranges
 from app.models.project import Project
 from app.models.sequence import Sequence
 from app.services.ffmpeg_service import FFmpegService
@@ -129,3 +131,37 @@ def _find(project: Project, sequence_id: str) -> Sequence:
 def _reindex(project: Project) -> None:
     for index, sequence in enumerate(project.sequences):
         sequence.order = index
+
+
+@dataclass
+class AutoSplitParams:
+    """Réglages du découpage automatique : la parole est ce qui reste entre les silences."""
+
+    threshold_db: float = -35.0
+    min_silence: float = 0.5
+    keep_padding: float = 0.1
+    min_segment: float = 0.5
+
+
+def detect_speech_ranges(
+    project: Project, ffmpeg_service: FFmpegService, params: AutoSplitParams
+) -> list[tuple[float, float]]:
+    """Segments non silencieux de l'audio source, en écartant ceux plus courts que `min_segment`."""
+    if project.source_video is None or not project.original_audio_path:
+        raise ValueError("Aucun audio source à analyser.")
+
+    silences = ffmpeg_service.detect_silences(project.original_audio_path, params.threshold_db, params.min_silence)
+    ranges = compute_keep_ranges(silences, project.source_video.duration, params.keep_padding)
+    return [(start, end) for start, end in ranges if end - start >= params.min_segment]
+
+
+def create_sequences_from_silences(
+    project: Project, ffmpeg_service: FFmpegService, params: AutoSplitParams
+) -> list[Sequence]:
+    """Découpe l'audio source en une séquence par segment non silencieux (non rattachées au projet)."""
+    ranges = detect_speech_ranges(project, ffmpeg_service, params)
+    first_number = len(project.sequences) + 1
+    return [
+        create_sequence(project, ffmpeg_service, start, end, name=f"Séquence {first_number + index}")
+        for index, (start, end) in enumerate(ranges)
+    ]

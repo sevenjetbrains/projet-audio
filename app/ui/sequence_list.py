@@ -89,6 +89,22 @@ class SequenceListWidget(QWidget):
             undo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, sequence.id),
         )
 
+    def add_sequences(self, sequences: list) -> None:
+        """Rattache des séquences déjà découpées au projet, en une seule action annulable."""
+        if self._project is None or not sequences:
+            return
+        label = f"« {sequences[0].name} »" if len(sequences) == 1 else f"{len(sequences)} séquences"
+
+        def redo():
+            for sequence in sequences:
+                sequence_service.insert_sequence(self._project, sequence)
+
+        def undo():
+            for sequence in sequences:
+                sequence_service.remove_sequence_from_list(self._project, sequence.id)
+
+        self._push_command(f"Créer {label}", redo_fn=redo, undo_fn=undo)
+
     def _refresh(self) -> None:
         previous_id = self._current_sequence_id()
 
