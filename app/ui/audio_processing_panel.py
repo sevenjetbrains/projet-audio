@@ -1,5 +1,7 @@
 """Panneau de traitement audio : nettoyage, EQ, compression, normalisation, gain, fades."""
 
+import copy
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -33,6 +35,7 @@ class AudioProcessingPanel(QWidget):
         self._project: Project | None = None
         self._sequence: Sequence | None = None
         self._worker: FFmpegTaskWorker | None = None
+        self._selected_sequences: list[Sequence] = []
 
         self._profile_combo = QComboBox()
         self._profile_combo.addItem(CUSTOM_PROFILE_LABEL)
@@ -85,6 +88,9 @@ class AudioProcessingPanel(QWidget):
 
         self._apply_button = QPushButton("Appliquer")
         self._apply_button.clicked.connect(self._on_apply_clicked)
+        self._apply_selection_button = QPushButton("Appliquer à la sélection")
+        self._apply_selection_button.setEnabled(False)
+        self._apply_selection_button.clicked.connect(self._on_apply_selection_clicked)
         self._reset_button = QPushButton("Réinitialiser")
         self._reset_button.clicked.connect(self._on_reset_clicked)
 
@@ -128,6 +134,7 @@ class AudioProcessingPanel(QWidget):
 
         buttons_row = QHBoxLayout()
         buttons_row.addWidget(self._apply_button)
+        buttons_row.addWidget(self._apply_selection_button)
         buttons_row.addWidget(self._reset_button)
 
         layout = QVBoxLayout()
@@ -156,6 +163,13 @@ class AudioProcessingPanel(QWidget):
 
     def set_project(self, project: Project) -> None:
         self._project = project
+
+    def set_selected_sequences(self, sequences: list[Sequence]) -> None:
+        """Séquences ciblées par « Appliquer à la sélection » (actif dès 2 séquences sélectionnées)."""
+        self._selected_sequences = list(sequences)
+        count = len(self._selected_sequences)
+        self._apply_selection_button.setEnabled(count > 1)
+        self._apply_selection_button.setText(f"Appliquer à la sélection ({count})" if count > 1 else "Appliquer à la sélection")
 
     def set_sequence(self, sequence: Sequence | None) -> None:
         self._sequence = sequence
@@ -223,9 +237,7 @@ class AudioProcessingPanel(QWidget):
 
         self._sequence.audio_settings = self._read_settings()
 
-        self._apply_button.setEnabled(False)
-        self._progress_bar.show()
-        self._status_label.setText("Traitement en cours…")
+        self._set_busy(True, "Traitement en cours…")
 
         sequence = self._sequence
         project = self._project
@@ -236,16 +248,37 @@ class AudioProcessingPanel(QWidget):
         self._worker.failed.connect(self._on_processing_failed)
         self._worker.start()
 
+    def _on_apply_selection_clicked(self) -> None:
+        """Applique les réglages courants à toutes les séquences sélectionnées (traitement séquentiel)."""
+        if self._project is None or len(self._selected_sequences) < 2:
+            return
+
+        settings = self._read_settings()
+        sequences = list(self._selected_sequences)
+        for sequence in sequences:
+            sequence.audio_settings = copy.deepcopy(settings)
+
+        self._set_busy(True, f"Traitement de {len(sequences)} séquences…")
+        project = self._project
+        self._worker = FFmpegTaskWorker(
+            lambda: [audio_processor.process_sequence(project, seq, self._ffmpeg_service) for seq in sequences]
+        )
+        self._worker.succeeded.connect(self._on_processing_succeeded)
+        self._worker.failed.connect(self._on_processing_failed)
+        self._worker.start()
+
+    def _set_busy(self, busy: bool, message: str) -> None:
+        self._apply_button.setEnabled(not busy)
+        self._apply_selection_button.setEnabled(not busy and len(self._selected_sequences) > 1)
+        self._progress_bar.setVisible(busy)
+        self._status_label.setText(message)
+
     def _on_processing_succeeded(self, _result) -> None:
-        self._progress_bar.hide()
-        self._apply_button.setEnabled(True)
-        self._status_label.setText("Traitement appliqué.")
+        self._set_busy(False, "Traitement appliqué.")
         self.processed.emit()
 
     def _on_processing_failed(self, message: str) -> None:
-        self._progress_bar.hide()
-        self._apply_button.setEnabled(True)
-        self._status_label.setText("Échec du traitement.")
+        self._set_busy(False, "Échec du traitement.")
         QMessageBox.critical(self, "AudioCut Studio — Erreur", message)
 
     def _on_reset_clicked(self) -> None:

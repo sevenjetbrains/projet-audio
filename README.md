@@ -26,7 +26,7 @@ python -m app.main
 ## Fonctionnalités
 
 - Import vidéo/audio, forme d'onde, lecture avec contrôles de transport (lecture/pause avec Espace, stop, ±5 s, volume) ; touches I / O pour marquer le début / la fin de la sélection à la position de lecture, Entrée pour créer la séquence
-- Création et gestion de séquences (début/fin, sélection, réorganisation)
+- Création et gestion de séquences (début/fin, réorganisation par glisser-déposer, sélection multiple : suppression, duplication et traitement en lot)
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)
 - Profils prédéfinis : Voix parlée, Interview, Podcast, Conférence, Enregistrement microphone, Voix faible
 - Barre d'état : nombre de séquences et durée fusionnée estimée

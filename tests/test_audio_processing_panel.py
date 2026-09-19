@@ -89,3 +89,30 @@ def test_apply_button_processes_sequence(qtbot, project_with_sequence):
 
     assert sequence.processed_audio_path
     assert Path(sequence.processed_audio_path).exists()
+
+
+def test_apply_to_selection_processes_all_selected_sequences(qtbot, project_with_sequence):
+    project, first, ffmpeg_service = project_with_sequence
+    second = sequence_service.add_sequence(project, ffmpeg_service, 0.1, 0.5)
+
+    panel = AudioProcessingPanel(ffmpeg_service)
+    qtbot.addWidget(panel)
+    panel.set_project(project)
+    panel.set_sequence(first)
+
+    panel.set_selected_sequences([first])
+    assert not panel._apply_selection_button.isEnabled()
+
+    panel.set_selected_sequences([first, second])
+    assert panel._apply_selection_button.isEnabled()
+    assert "(2)" in panel._apply_selection_button.text()
+
+    panel._gain_spin.setValue(3.0)
+    with qtbot.waitSignal(panel.processed, timeout=10000):
+        panel._on_apply_selection_clicked()
+
+    for sequence in (first, second):
+        assert sequence.audio_settings.gain == 3.0
+        assert sequence.processed_audio_path and Path(sequence.processed_audio_path).exists()
+    assert first.audio_settings is not second.audio_settings
+    assert panel._apply_selection_button.isEnabled()

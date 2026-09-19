@@ -187,6 +187,7 @@ class MainWindow(QMainWindow):
         self._sequence_list.play_requested.connect(self._on_sequence_play_requested)
         self._sequence_list.sequence_selected.connect(self._on_sequence_selected)
         self._sequence_list.sequences_changed.connect(self._on_sequences_changed)
+        self._sequence_list.selection_changed.connect(self._audio_processing_panel.set_selected_sequences)
         self._audio_processing_panel.processed.connect(self._sequence_list.refresh)
 
     def _on_audio_ready(self, wav_path: str, duration: float) -> None:

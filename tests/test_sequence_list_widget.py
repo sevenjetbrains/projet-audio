@@ -131,3 +131,59 @@ def test_reorder_updates_project_order(widget_with_project):
     widget._on_rows_moved()
 
     assert [seq.id for seq in project.sequences] == [third_id, first_id, second_id]
+
+
+def _add_three(widget):
+    widget.add_sequence_from_selection(0.0, 0.2)
+    widget.add_sequence_from_selection(0.2, 0.4)
+    widget.add_sequence_from_selection(0.4, 0.6)
+
+
+def _select_rows(widget, rows):
+    widget._list_widget.clearSelection()
+    for row in rows:
+        widget._list_widget.item(row).setSelected(True)
+
+
+def test_selection_changed_emits_selected_sequences_in_order(widget_with_project):
+    widget, project = widget_with_project
+    _add_three(widget)
+    emissions = []
+    widget.selection_changed.connect(emissions.append)
+
+    _select_rows(widget, [2, 0])
+
+    assert [seq.id for seq in emissions[-1]] == [project.sequences[0].id, project.sequences[2].id]
+
+
+def test_delete_multiple_and_undo_restores_original_positions(widget_with_project):
+    widget, project = widget_with_project
+    _add_three(widget)
+    ids = [seq.id for seq in project.sequences]
+
+    _select_rows(widget, [0, 2])
+    widget._on_delete_clicked()
+
+    assert [seq.id for seq in project.sequences] == [ids[1]]
+    assert widget._list_widget.count() == 1
+
+    widget.undo_stack.undo()
+    assert [seq.id for seq in project.sequences] == ids
+    assert [seq.order for seq in project.sequences] == [0, 1, 2]
+
+    widget.undo_stack.redo()
+    assert [seq.id for seq in project.sequences] == [ids[1]]
+
+
+def test_duplicate_multiple_creates_copies_and_undo_removes_them(widget_with_project):
+    widget, project = widget_with_project
+    _add_three(widget)
+
+    _select_rows(widget, [0, 1])
+    widget._on_duplicate_clicked()
+
+    assert len(project.sequences) == 5
+    assert len({seq.id for seq in project.sequences}) == 5
+
+    widget.undo_stack.undo()
+    assert len(project.sequences) == 3

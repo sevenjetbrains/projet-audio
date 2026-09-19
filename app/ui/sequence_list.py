@@ -29,6 +29,7 @@ class SequenceListWidget(QWidget):
     play_requested = Signal(str, str)
     sequences_changed = Signal()
     sequence_selected = Signal(str)
+    selection_changed = Signal(list)
 
     def __init__(self, ffmpeg_service: FFmpegService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -37,9 +38,11 @@ class SequenceListWidget(QWidget):
         self._undo_stack = QUndoStack(self)
 
         self._list_widget = QListWidget()
+        self._list_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self._list_widget.model().rowsMoved.connect(self._on_rows_moved)
         self._list_widget.currentItemChanged.connect(self._on_current_item_changed)
+        self._list_widget.itemSelectionChanged.connect(self._on_selection_changed)
 
         play_button = QPushButton("▶ Lire")
         play_button.clicked.connect(self._on_play_clicked)
@@ -134,6 +137,18 @@ class SequenceListWidget(QWidget):
         sequence_id = self._current_sequence_id()
         return self.get_sequence(sequence_id) if sequence_id else None
 
+    def selected_sequences(self) -> list:
+        """Séquences sélectionnées (sélection multiple), dans l'ordre d'affichage."""
+        selected = []
+        for item in self._list_widget.selectedItems():
+            sequence = self.get_sequence(item.data(Qt.ItemDataRole.UserRole))
+            if sequence is not None:
+                selected.append(sequence)
+        return sorted(selected, key=lambda seq: seq.order)
+
+    def _on_selection_changed(self) -> None:
+        self.selection_changed.emit(self.selected_sequences())
+
     def refresh(self) -> None:
         """Rafraîchit l'affichage (ex. après un traitement audio appliqué en externe)."""
         self._refresh()
@@ -166,27 +181,45 @@ class SequenceListWidget(QWidget):
         )
 
     def _on_duplicate_clicked(self) -> None:
-        sequence_id = self._current_sequence_id()
-        if sequence_id is None or self._project is None:
+        if self._project is None:
             return
-        duplicate = sequence_service.create_duplicate(self._project, sequence_id)
+        originals = self.selected_sequences()
+        if not originals:
+            return
+        duplicates = [sequence_service.create_duplicate(self._project, seq.id) for seq in originals]
 
-        self._push_command(
-            f"Dupliquer « {duplicate.name} »",
-            redo_fn=lambda: sequence_service.insert_sequence(self._project, duplicate),
-            undo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, duplicate.id),
-        )
+        label = f"« {duplicates[0].name} »" if len(duplicates) == 1 else f"{len(duplicates)} séquences"
+
+        def redo():
+            for duplicate in duplicates:
+                sequence_service.insert_sequence(self._project, duplicate)
+
+        def undo():
+            for duplicate in duplicates:
+                sequence_service.remove_sequence_from_list(self._project, duplicate.id)
+
+        self._push_command(f"Dupliquer {label}", redo_fn=redo, undo_fn=undo)
 
     def _on_delete_clicked(self) -> None:
-        sequence = self.current_sequence()
-        if sequence is None or self._project is None:
+        if self._project is None:
             return
+        targets = self.selected_sequences()
+        if not targets:
+            return
+        # Position d'origine de chaque séquence, pour la restaurer exactement à l'annulation.
+        positions = [(seq, self._project.sequences.index(seq)) for seq in targets]
 
-        self._push_command(
-            f"Supprimer « {sequence.name} »",
-            redo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, sequence.id),
-            undo_fn=lambda: sequence_service.insert_sequence(self._project, sequence),
-        )
+        label = f"« {targets[0].name} »" if len(targets) == 1 else f"{len(targets)} séquences"
+
+        def redo():
+            for seq, _index in positions:
+                sequence_service.remove_sequence_from_list(self._project, seq.id)
+
+        def undo():
+            for seq, index in sorted(positions, key=lambda pair: pair[1]):
+                sequence_service.insert_sequence(self._project, seq, index)
+
+        self._push_command(f"Supprimer {label}", redo_fn=redo, undo_fn=undo)
 
     def _on_rows_moved(self, *_args) -> None:
         if self._project is None:
