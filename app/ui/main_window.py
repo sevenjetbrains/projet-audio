@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
             spin.setSuffix(" s")
             spin.setRange(0.0, 0.0)
 
-        self._create_sequence_button = QPushButton("Créer une séquence")
+        self._create_sequence_button = QPushButton("Créer une séquence (Entrée)")
         self._create_sequence_button.clicked.connect(self._on_create_sequence_clicked)
 
         selection_form = QFormLayout()
@@ -98,6 +98,8 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence(Qt.Key.Key_I), self, activated=self._mark_selection_start)
         QShortcut(QKeySequence(Qt.Key.Key_O), self, activated=self._mark_selection_end)
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            QShortcut(QKeySequence(key), self, activated=self._on_create_sequence_clicked)
 
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(2 * 60 * 1000)

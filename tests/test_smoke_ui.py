@@ -93,3 +93,23 @@ def test_mark_out_before_in_pulls_start_back(qtbot, monkeypatch):
 
     assert window._selection_start_spin.value() == 1.0
     assert window._selection_end_spin.value() == 1.0
+
+
+def test_enter_shortcut_creates_sequence_from_selection(qtbot, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeySequence, QShortcut
+
+    window = _window_with_duration(qtbot, monkeypatch)
+    calls = []
+    monkeypatch.setattr(window._sequence_list, "add_sequence_from_selection", lambda s, e: calls.append((s, e)))
+    window._selection_start_spin.setValue(1.0)
+    window._selection_end_spin.setValue(4.0)
+
+    enter_shortcuts = [
+        sc for sc in window.findChildren(QShortcut)
+        if sc.key() in (QKeySequence(Qt.Key.Key_Return), QKeySequence(Qt.Key.Key_Enter))
+    ]
+    assert len(enter_shortcuts) == 2
+
+    window._on_create_sequence_clicked()
+    assert calls == [(1.0, 4.0)]
