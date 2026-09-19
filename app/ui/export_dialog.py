@@ -74,7 +74,7 @@ class ExportDialog(QDialog):
         self._export_button.setToolTip("Lancer l'export (Entrée)")
 
         self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 0)
+        self._progress_bar.setRange(0, 100)
         self._progress_bar.hide()
 
         self._status_label = QLabel("")
@@ -155,16 +155,20 @@ class ExportDialog(QDialog):
         separate = self._separate_cb.isChecked()
         normalize_lufs = self._lufs_spin.value() if self._normalize_cb.isChecked() else None
         self._export_button.setEnabled(False)
+        self._progress_bar.setValue(0)
         self._progress_bar.show()
         self._status_label.setText("Export en cours…")
 
         if separate:
-            task = lambda: export_sequences_separately(
-                self._project, self._ffmpeg_service, out_path, fmt, quality, normalize_lufs
+            task = lambda report: export_sequences_separately(
+                self._project, self._ffmpeg_service, out_path, fmt, quality, normalize_lufs, on_progress=report
             )
         else:
-            task = lambda: export_project(self._project, self._ffmpeg_service, out_path, fmt, quality, normalize_lufs)
-        self._worker = FFmpegTaskWorker(task)
+            task = lambda report: export_project(
+                self._project, self._ffmpeg_service, out_path, fmt, quality, normalize_lufs, on_progress=report
+            )
+        self._worker = FFmpegTaskWorker(task, with_progress=True)
+        self._worker.progress.connect(self._progress_bar.setValue)
         self._worker.succeeded.connect(lambda _: self._on_export_succeeded(out_path))
         self._worker.failed.connect(self._on_export_failed)
         self._worker.start()

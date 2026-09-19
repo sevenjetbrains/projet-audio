@@ -33,6 +33,7 @@ python -m app.main
 - Thèmes sombre et clair (menu Affichage), choix mémorisé
 - Titre de fenêtre avec astérisque si modifications non sauvegardées, confirmation avant fermeture, nouvel import ou ouverture d'un autre projet
 - Raccourcis clavier des boutons (infobulles) : Suppr, Ctrl+D, F2, Ctrl+L (séquences) ; Ctrl+Entrée, Ctrl+Maj+Entrée, Ctrl+R (traitement) ; Ctrl+M (fusion) ; F1 : liste complète des raccourcis ; Alt+←/→, Ctrl+Espace (lecture)
+- Barres de progression réelles (pourcentage) pour l'export et les traitements audio
 - Barre d'état : nombre de séquences et durée fusionnée estimée
 - Suppression des silences et fusion avec fondu enchaîné (crossfade)
 - Normalisation optionnelle du volume à l'export (loudness LUFS)

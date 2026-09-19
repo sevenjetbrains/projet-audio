@@ -6,13 +6,14 @@ from pathlib import Path
 from app.audio.filters import normalize_filter
 from app.models.project import Project
 from app.services.ffmpeg_service import FFmpegService
+from app.utils.progress import ProgressCallback, sub_progress
 
 
 class ExportError(RuntimeError):
     """Erreur utilisateur claire lors de la fusion/export."""
 
 
-def merge_sequences(project: Project, ffmpeg_service: FFmpegService) -> str:
+def merge_sequences(project: Project, ffmpeg_service: FFmpegService, on_progress: ProgressCallback | None = None) -> str:
     """Concatène les séquences dans leur ordre courant vers temp/project_x/final.wav."""
     if not project.sequences:
         raise ExportError("Aucune séquence à fusionner. Créez au moins une séquence.")
@@ -22,18 +23,22 @@ def merge_sequences(project: Project, ffmpeg_service: FFmpegService) -> str:
     paths = [seq.effective_audio_path for seq in ordered]
 
     if project.crossfade_duration > 0 and len(paths) > 1:
-        ffmpeg_service.concat_with_crossfade(paths, out_path, project.crossfade_duration)
+        ffmpeg_service.concat_with_crossfade(paths, out_path, project.crossfade_duration, on_progress)
     else:
-        ffmpeg_service.concat_audio(paths, out_path)
+        ffmpeg_service.concat_audio(paths, out_path, on_progress)
 
     return out_path
 
 
 def _normalized_copy(
-    ffmpeg_service: FFmpegService, source_wav: str, out_wav: Path, target_lufs: float
+    ffmpeg_service: FFmpegService,
+    source_wav: str,
+    out_wav: Path,
+    target_lufs: float,
+    on_progress: ProgressCallback | None = None,
 ) -> str:
     """Écrit une version au volume normalisé (loudness EBU R128) de source_wav ; l'original reste intact."""
-    ffmpeg_service.apply_filters(source_wav, str(out_wav), normalize_filter("loudness", target_lufs))
+    ffmpeg_service.apply_filters(source_wav, str(out_wav), normalize_filter("loudness", target_lufs), on_progress)
     return str(out_wav)
 
 
@@ -44,15 +49,24 @@ def export_project(
     fmt: str,
     quality: str,
     normalize_lufs: float | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> None:
     """Fusionne puis exporte le résultat final vers out_path au format/qualité choisis.
 
     Si `normalize_lufs` est fourni, le volume du résultat fusionné est normalisé à ce niveau avant l'export.
     """
-    final_wav = merge_sequences(project, ffmpeg_service)
+    # Répartition de la barre de progression entre les étapes (fusion, normalisation éventuelle, encodage).
+    merge_end, normalize_end = (0.3, 0.7) if normalize_lufs is not None else (0.4, 0.4)
+    final_wav = merge_sequences(project, ffmpeg_service, sub_progress(on_progress, 0.0, merge_end))
     if normalize_lufs is not None:
-        final_wav = _normalized_copy(ffmpeg_service, final_wav, Path(project.temp_dir) / "final_normalized.wav", normalize_lufs)
-    ffmpeg_service.export_audio(final_wav, out_path, fmt, quality)
+        final_wav = _normalized_copy(
+            ffmpeg_service,
+            final_wav,
+            Path(project.temp_dir) / "final_normalized.wav",
+            normalize_lufs,
+            sub_progress(on_progress, merge_end, normalize_end),
+        )
+    ffmpeg_service.export_audio(final_wav, out_path, fmt, quality, sub_progress(on_progress, normalize_end, 1.0))
 
 
 def _safe_filename(name: str) -> str:
@@ -66,6 +80,7 @@ def export_sequences_separately(
     fmt: str,
     quality: str,
     normalize_lufs: float | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> list[str]:
     """Exporte chaque séquence (version traitée si disponible) dans son propre fichier, dans out_dir."""
     if not project.sequences:
@@ -74,14 +89,21 @@ def export_sequences_separately(
     directory = Path(out_dir)
     directory.mkdir(parents=True, exist_ok=True)
 
+    ordered = sorted(project.sequences, key=lambda s: s.order)
     written: list[str] = []
-    for index, seq in enumerate(sorted(project.sequences, key=lambda s: s.order), start=1):
+    for index, seq in enumerate(ordered, start=1):
+        slice_progress = sub_progress(on_progress, (index - 1) / len(ordered), index / len(ordered))
+        encode_start = 0.5 if normalize_lufs is not None else 0.0
         target = directory / f"{index:02d}_{_safe_filename(seq.name)}.{fmt.lower()}"
         source = seq.effective_audio_path
         if normalize_lufs is not None:
             source = _normalized_copy(
-                ffmpeg_service, source, Path(project.temp_dir) / f"export_norm_{seq.id}.wav", normalize_lufs
+                ffmpeg_service,
+                source,
+                Path(project.temp_dir) / f"export_norm_{seq.id}.wav",
+                normalize_lufs,
+                sub_progress(slice_progress, 0.0, 0.5),
             )
-        ffmpeg_service.export_audio(source, str(target), fmt, quality)
+        ffmpeg_service.export_audio(source, str(target), fmt, quality, sub_progress(slice_progress, encode_start, 1.0))
         written.append(str(target))
     return written

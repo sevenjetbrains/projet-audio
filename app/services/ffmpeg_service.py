@@ -14,6 +14,8 @@ import wave
 from collections.abc import Callable
 from pathlib import Path
 
+from app.utils.progress import sub_progress
+
 _TIME_PATTERN = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 _SILENCE_START_PATTERN = re.compile(r"silence_start:\s*(-?\d+\.?\d*)")
 _SILENCE_END_PATTERN = re.compile(r"silence_end:\s*(-?\d+\.?\d*)")
@@ -24,6 +26,15 @@ _FLAC_SAMPLE_FORMATS = {"16": "s16", "24": "s32"}
 _AAC_BITRATES = {"128", "192", "256", "320"}
 _OGG_QUALITIES = {"3", "5", "7"}
 _OPUS_BITRATES = {"64", "96", "128", "192"}
+
+
+def wav_duration(path: str) -> float:
+    """Durée d'un WAV en secondes (0.0 si illisible : la progression est alors simplement non affichée)."""
+    try:
+        with wave.open(path, "rb") as wav_file:
+            return wav_file.getnframes() / wav_file.getframerate()
+    except (wave.Error, EOFError, OSError, ZeroDivisionError):
+        return 0.0
 
 
 class FFmpegExecutionError(RuntimeError):
@@ -73,7 +84,9 @@ class FFmpegService:
             out.setparams(params)
             out.writeframes(frames)
 
-    def concat_audio(self, input_wav_paths: list[str], out_wav_path: str) -> None:
+    def concat_audio(
+        self, input_wav_paths: list[str], out_wav_path: str, on_progress: Callable[[float], None] | None = None
+    ) -> None:
         """Concatène plusieurs WAV (dans l'ordre donné) en un seul fichier, sans transition."""
         if not input_wav_paths:
             raise ValueError("input_wav_paths must not be empty")
@@ -96,7 +109,8 @@ class FFmpegService:
                 "-c", "copy",
                 out_wav_path,
             ]
-            self._run(cmd)
+            total = sum(wav_duration(path) for path in input_wav_paths)
+            self._run(cmd, total_duration=total, on_progress=on_progress)
         finally:
             Path(filelist_path).unlink(missing_ok=True)
 
@@ -127,13 +141,21 @@ class FFmpegService:
 
         return silences
 
-    def concat_with_crossfade(self, input_wav_paths: list[str], out_wav_path: str, crossfade_duration: float) -> None:
+    def concat_with_crossfade(
+        self,
+        input_wav_paths: list[str],
+        out_wav_path: str,
+        crossfade_duration: float,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> None:
         """Concatène plusieurs WAV avec un fondu croisé de `crossfade_duration` secondes entre chacun."""
         if not input_wav_paths:
             raise ValueError("input_wav_paths must not be empty")
 
         if len(input_wav_paths) == 1:
             shutil.copyfile(input_wav_paths[0], out_wav_path)
+            if on_progress:
+                on_progress(1.0)
             return
 
         intermediates: list[str] = []
@@ -157,18 +179,36 @@ class FFmpegService:
                     "-filter_complex", f"acrossfade=d={crossfade_duration}:c1=tri:c2=tri",
                     out,
                 ]
-                self._run(cmd)
+                step_total = wav_duration(current) + wav_duration(next_path) - crossfade_duration
+                self._run(
+                    cmd,
+                    total_duration=step_total,
+                    on_progress=sub_progress(on_progress, index / len(remaining), (index + 1) / len(remaining)),
+                )
                 current = out
         finally:
             for path in intermediates:
                 Path(path).unlink(missing_ok=True)
 
-    def apply_filters(self, source_wav_path: str, out_wav_path: str, filter_chain: str) -> None:
+    def apply_filters(
+        self,
+        source_wav_path: str,
+        out_wav_path: str,
+        filter_chain: str,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> None:
         """Applique une chaîne de filtres audio FFmpeg (`-af`), sans toucher au fichier source."""
         cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-af", filter_chain, out_wav_path]
-        self._run(cmd)
+        self._run(cmd, total_duration=wav_duration(source_wav_path), on_progress=on_progress)
 
-    def export_audio(self, source_wav_path: str, out_path: str, fmt: str, quality: str) -> None:
+    def export_audio(
+        self,
+        source_wav_path: str,
+        out_path: str,
+        fmt: str,
+        quality: str,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> None:
         """Réencode un WAV source vers le format/qualité d'export choisis par l'utilisateur."""
         fmt = fmt.lower()
 
@@ -205,7 +245,7 @@ class FFmpegService:
         else:
             raise ValueError(f"Format d'export non supporté : {fmt}")
 
-        self._run(cmd)
+        self._run(cmd, total_duration=wav_duration(source_wav_path), on_progress=on_progress)
 
     def _run(
         self,

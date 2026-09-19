@@ -49,18 +49,27 @@ class ExtractAudioWorker(QThread):
 
 
 class FFmpegTaskWorker(QThread):
-    """Worker générique pour une opération FFmpeg sans progression fine (cut/concat/export)."""
+    """Worker générique pour une opération FFmpeg (cut/concat/export/traitement).
 
+    Avec `with_progress=True`, la tâche reçoit un callback `report(fraction)` (0..1) dont les appels
+    sont relayés à l'interface par le signal `progress` (entier 0..100).
+    """
+
+    progress = Signal(int)
     succeeded = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, task: Callable[[], Any], parent=None) -> None:
+    def __init__(self, task: Callable[..., Any], parent=None, with_progress: bool = False) -> None:
         super().__init__(parent)
         self._task = task
+        self._with_progress = with_progress
+
+    def _report(self, fraction: float) -> None:
+        self.progress.emit(int(max(0.0, min(1.0, fraction)) * 100))
 
     def run(self) -> None:
         try:
-            result = self._task()
+            result = self._task(self._report) if self._with_progress else self._task()
         except (ExportError, ProjectLoadError) as exc:
             self.failed.emit(str(exc))
             return

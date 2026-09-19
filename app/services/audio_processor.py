@@ -8,6 +8,7 @@ from app.audio.silence_detection import compute_keep_ranges
 from app.models.project import Project
 from app.models.sequence import Sequence
 from app.services.ffmpeg_service import FFmpegService
+from app.utils.progress import ProgressCallback, sub_progress
 
 
 def remove_silences(project: Project, sequence: Sequence, ffmpeg_service: FFmpegService) -> tuple[str, float]:
@@ -40,7 +41,12 @@ def remove_silences(project: Project, sequence: Sequence, ffmpeg_service: FFmpeg
     return out_path, total_duration
 
 
-def process_sequence(project: Project, sequence: Sequence, ffmpeg_service: FFmpegService) -> str | None:
+def process_sequence(
+    project: Project,
+    sequence: Sequence,
+    ffmpeg_service: FFmpegService,
+    on_progress: ProgressCallback | None = None,
+) -> str | None:
     """Applique sequence.audio_settings sur le fichier brut de la séquence.
 
     Écrit un fichier temp/project_x/processed_<id>_<jeton>.wav distinct à chaque appel (non destructif :
@@ -50,12 +56,18 @@ def process_sequence(project: Project, sequence: Sequence, ffmpeg_service: FFmpe
     source_path = sequence.audio_path
     effective_duration = sequence.duration
 
+    filters_start = 0.0
     if sequence.audio_settings.silence_removal:
         source_path, effective_duration = remove_silences(project, sequence, ffmpeg_service)
+        filters_start = 0.5
+        if on_progress:
+            on_progress(filters_start)
 
     filter_chain = build_filter_chain(sequence.audio_settings, effective_duration)
 
     if filter_chain is None:
+        if on_progress:
+            on_progress(1.0)
         if source_path != sequence.audio_path:
             sequence.processed_audio_path = source_path
             return source_path
@@ -63,7 +75,7 @@ def process_sequence(project: Project, sequence: Sequence, ffmpeg_service: FFmpe
         return None
 
     out_path = str(Path(project.temp_dir) / f"processed_{sequence.id}_{uuid4().hex[:6]}.wav")
-    ffmpeg_service.apply_filters(source_path, out_path, filter_chain)
+    ffmpeg_service.apply_filters(source_path, out_path, filter_chain, sub_progress(on_progress, filters_start, 1.0))
     sequence.processed_audio_path = out_path
     return out_path
 

@@ -25,6 +25,7 @@ from app.models.sequence import Sequence
 from app.services import audio_processor
 from app.services.ffmpeg_service import FFmpegService
 from app.ui.shortcuts import set_button_shortcut
+from app.utils.progress import sub_progress
 from app.ui.undo_commands import CallbackCommand
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
@@ -104,7 +105,7 @@ class AudioProcessingPanel(QWidget):
         set_button_shortcut(self._reset_button, "Ctrl+R", "Réinitialiser le traitement")
 
         self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 0)
+        self._progress_bar.setRange(0, 100)
         self._progress_bar.hide()
         self._status_label = QLabel("Sélectionnez une séquence.")
 
@@ -280,8 +281,10 @@ class AudioProcessingPanel(QWidget):
 
         project = self._project
         self._worker = FFmpegTaskWorker(
-            lambda: audio_processor.process_sequence(project, sequence, self._ffmpeg_service)
+            lambda report: audio_processor.process_sequence(project, sequence, self._ffmpeg_service, report),
+            with_progress=True,
         )
+        self._worker.progress.connect(self._progress_bar.setValue)
         self._worker.succeeded.connect(self._on_processing_succeeded)
         self._worker.failed.connect(self._on_processing_failed)
         self._worker.start()
@@ -300,8 +303,15 @@ class AudioProcessingPanel(QWidget):
         self._set_busy(True, f"Traitement de {len(sequences)} séquences…")
         project = self._project
         self._worker = FFmpegTaskWorker(
-            lambda: [audio_processor.process_sequence(project, seq, self._ffmpeg_service) for seq in sequences]
+            lambda report: [
+                audio_processor.process_sequence(
+                    project, seq, self._ffmpeg_service, sub_progress(report, i / len(sequences), (i + 1) / len(sequences))
+                )
+                for i, seq in enumerate(sequences)
+            ],
+            with_progress=True,
         )
+        self._worker.progress.connect(self._progress_bar.setValue)
         self._worker.succeeded.connect(self._on_processing_succeeded)
         self._worker.failed.connect(self._on_processing_failed)
         self._worker.start()
@@ -309,6 +319,8 @@ class AudioProcessingPanel(QWidget):
     def _set_busy(self, busy: bool, message: str) -> None:
         self._apply_button.setEnabled(not busy)
         self._apply_selection_button.setEnabled(not busy and len(self._selected_sequences) > 1)
+        if busy:
+            self._progress_bar.setValue(0)
         self._progress_bar.setVisible(busy)
         self._status_label.setText(message)
 
