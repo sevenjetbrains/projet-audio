@@ -72,3 +72,29 @@ def test_export_dialog_separate_files(qtbot, project_with_sequence, tmp_path, mo
     qtbot.waitUntil(lambda: dialog._worker.isFinished(), timeout=2000)
 
     assert len(list((tmp_path / "seqs").glob("*.wav"))) == 1
+
+
+def test_export_dialog_suggests_path_next_to_video(qtbot, project_with_sequence):
+    project, ffmpeg_service = project_with_sequence
+    video = Path(project.source_video.path)
+    dialog = ExportDialog(project, ffmpeg_service)
+    qtbot.addWidget(dialog)
+
+    assert Path(dialog._path_edit.text()) == video.parent / f"{video.stem}_audio.wav"
+
+    dialog._format_combo.setCurrentText("MP3")
+    assert Path(dialog._path_edit.text()) == video.parent / f"{video.stem}_audio.mp3"
+
+    dialog._separate_cb.setChecked(True)
+    assert Path(dialog._path_edit.text()) == video.parent / f"{video.stem}_sequences"
+
+
+def test_export_dialog_keeps_user_typed_path_on_format_change(qtbot, project_with_sequence):
+    project, ffmpeg_service = project_with_sequence
+    dialog = ExportDialog(project, ffmpeg_service)
+    qtbot.addWidget(dialog)
+
+    dialog._path_edit.setText("C:/mon/choix.wav")
+    dialog._format_combo.setCurrentText("FLAC")
+
+    assert dialog._path_edit.text() == "C:/mon/choix.wav"

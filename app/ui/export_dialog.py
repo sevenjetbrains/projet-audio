@@ -1,5 +1,7 @@
 """Dialogue d'export : choix du format, de la qualité, du nom et du dossier de destination."""
 
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -48,7 +50,7 @@ class ExportDialog(QDialog):
         self._format_combo.currentTextChanged.connect(self._on_format_changed)
 
         self._quality_combo = QComboBox()
-        self._on_format_changed(self._format_combo.currentText())
+        self._auto_path = ""
 
         self._separate_cb = QCheckBox("Un fichier par séquence (destination : dossier)")
         self._separate_cb.toggled.connect(self._on_separate_toggled)
@@ -76,14 +78,36 @@ class ExportDialog(QDialog):
         layout.addWidget(self._status_label)
         self.setLayout(layout)
 
+        self._on_format_changed(self._format_combo.currentText())
+
+    def _suggested_path(self) -> str:
+        """Destination proposée : à côté de la vidéo source, nommée d'après elle."""
+        source = self._project.source_video
+        if source is None:
+            return ""
+        video = Path(source.path)
+        if self._separate_cb.isChecked():
+            return str(video.parent / f"{video.stem}_sequences")
+        return str(video.parent / f"{video.stem}_audio.{self._format_combo.currentText().lower()}")
+
+    def _refresh_suggested_path(self) -> None:
+        """Met à jour la destination proposée sans écraser un chemin saisi par l'utilisateur."""
+        current = self._path_edit.text().strip()
+        if current and current != self._auto_path:
+            return
+        self._auto_path = self._suggested_path()
+        self._path_edit.setText(self._auto_path)
+
     def _on_format_changed(self, fmt: str) -> None:
         self._quality_combo.clear()
         for label, _code in _QUALITY_OPTIONS[fmt]:
             self._quality_combo.addItem(label)
+        self._refresh_suggested_path()
 
     def _on_separate_toggled(self, checked: bool) -> None:
         self._destination_label.setText("Dossier de destination :" if checked else "Fichier de destination :")
         self._path_edit.clear()
+        self._refresh_suggested_path()
 
     def _selected_quality_code(self) -> str:
         fmt = self._format_combo.currentText()
