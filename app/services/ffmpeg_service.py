@@ -20,6 +20,8 @@ _SILENCE_END_PATTERN = re.compile(r"silence_end:\s*(-?\d+\.?\d*)")
 
 _MP3_BITRATES = {"128", "192", "256", "320"}
 _WAV_SAMPLE_FORMATS = {"16": "pcm_s16le", "24": "pcm_s24le"}
+_FLAC_SAMPLE_FORMATS = {"16": "s16", "24": "s32"}
+_AAC_BITRATES = {"128", "192", "256", "320"}
 
 
 class FFmpegExecutionError(RuntimeError):
@@ -181,6 +183,15 @@ class FFmpegService:
                 "-codec:a", "libmp3lame", "-b:a", f"{quality}k",
                 out_path,
             ]
+        elif fmt == "flac":
+            sample_format = _FLAC_SAMPLE_FORMATS.get(quality)
+            if sample_format is None:
+                raise ValueError(f"Qualité FLAC non supportée : {quality}")
+            cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-codec:a", "flac", "-sample_fmt", sample_format, out_path]
+        elif fmt == "m4a":
+            if quality not in _AAC_BITRATES:
+                raise ValueError(f"Débit AAC non supporté : {quality}")
+            cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-codec:a", "aac", "-b:a", f"{quality}k", out_path]
         else:
             raise ValueError(f"Format d'export non supporté : {fmt}")
 

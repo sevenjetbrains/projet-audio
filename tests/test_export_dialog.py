@@ -31,7 +31,7 @@ def test_export_dialog_instantiates(qtbot, project_with_sequence):
     dialog = ExportDialog(project, ffmpeg_service)
     qtbot.addWidget(dialog)
 
-    assert dialog._format_combo.count() == 2
+    assert dialog._format_combo.count() == 4
 
 
 def test_export_dialog_runs_export_to_wav(qtbot, project_with_sequence, tmp_path, monkeypatch):

@@ -20,6 +20,8 @@ from app.workers.ffmpeg_worker import FFmpegTaskWorker
 _QUALITY_OPTIONS = {
     "WAV": [("16 bits", "16"), ("24 bits", "24")],
     "MP3": [("128 kbps", "128"), ("192 kbps", "192"), ("256 kbps", "256"), ("320 kbps", "320")],
+    "FLAC": [("16 bits", "16"), ("24 bits", "24")],
+    "M4A": [("128 kbps", "128"), ("192 kbps", "192"), ("256 kbps", "256"), ("320 kbps", "320")],
 }
 
 

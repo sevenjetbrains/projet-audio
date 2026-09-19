@@ -75,6 +75,31 @@ def test_export_audio_mp3(ffmpeg_binaries, extracted_source_wav, tmp_path):
     assert out_path.stat().st_size > 0
 
 
+def test_export_audio_flac(ffmpeg_binaries, extracted_source_wav, tmp_path):
+    service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
+    for quality in ("16", "24"):
+        out_path = tmp_path / f"export_{quality}.flac"
+        service.export_audio(extracted_source_wav, str(out_path), "flac", quality)
+        assert out_path.read_bytes()[:4] == b"fLaC"
+
+
+def test_export_audio_m4a(ffmpeg_binaries, extracted_source_wav, tmp_path):
+    service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
+    out_path = tmp_path / "export.m4a"
+
+    service.export_audio(extracted_source_wav, str(out_path), "m4a", "192")
+
+    assert out_path.stat().st_size > 0
+    assert out_path.read_bytes()[4:8] == b"ftyp"
+
+
+def test_export_audio_rejects_invalid_quality(ffmpeg_binaries, extracted_source_wav, tmp_path):
+    service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
+    for fmt in ("flac", "m4a"):
+        with pytest.raises(ValueError):
+            service.export_audio(extracted_source_wav, str(tmp_path / f"out.{fmt}"), fmt, "999")
+
+
 def test_export_audio_rejects_unknown_format(ffmpeg_binaries, extracted_source_wav, tmp_path):
     service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
     with pytest.raises(ValueError):
