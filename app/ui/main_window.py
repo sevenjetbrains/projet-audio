@@ -100,9 +100,11 @@ class MainWindow(QMainWindow):
         central.setLayout(layout)
         self.setCentralWidget(central)
 
+        self._dirty = False
         self._project_summary_label = QLabel()
         self.statusBar().addPermanentWidget(self._project_summary_label)
         self._update_project_summary()
+        self._update_window_title()
 
         self._build_menu()
         self._build_theme_menu()
@@ -254,6 +256,43 @@ class MainWindow(QMainWindow):
         self._sequence_list.sequences_changed.connect(self._on_sequences_changed)
         self._sequence_list.selection_changed.connect(self._audio_processing_panel.set_selected_sequences)
         self._audio_processing_panel.processed.connect(self._sequence_list.refresh)
+        self._audio_processing_panel.processed.connect(self._mark_dirty)
+
+    def _set_dirty(self, dirty: bool) -> None:
+        self._dirty = dirty
+        self._update_window_title()
+
+    def _mark_dirty(self) -> None:
+        self._set_dirty(True)
+
+    def _update_window_title(self) -> None:
+        project = self._video_panel.project
+        if project is None:
+            self.setWindowTitle(APP_NAME)
+            return
+        self.setWindowTitle(f"{project.name}{' *' if self._dirty else ''} — {APP_NAME}")
+
+    def _confirm_discard_changes(self) -> bool:
+        """Propose d'enregistrer les modifications en cours ; False si l'utilisateur annule."""
+        if not self._dirty:
+            return True
+        buttons = QMessageBox.StandardButton
+        answer = QMessageBox.question(
+            self,
+            "AudioCut Studio",
+            "Le projet contient des modifications non sauvegardées.\nVoulez-vous les enregistrer ?",
+            buttons.Save | buttons.Discard | buttons.Cancel,
+            buttons.Save,
+        )
+        if answer == buttons.Save:
+            return self._save_project()
+        return answer == buttons.Discard
+
+    def closeEvent(self, event) -> None:
+        if self._confirm_discard_changes():
+            super().closeEvent(event)
+        else:
+            event.ignore()
 
     def _on_audio_ready(self, wav_path: str, duration: float) -> None:
         self._waveform_widget.load(wav_path, duration)
@@ -264,6 +303,7 @@ class MainWindow(QMainWindow):
         self._crossfade_spin.setValue(self._video_panel.project.crossfade_duration)
         self._crossfade_spin.blockSignals(False)
         self._update_project_summary()
+        self._set_dirty(False)
 
         for spin in (self._selection_start_spin, self._selection_end_spin):
             spin.blockSignals(True)
@@ -311,6 +351,7 @@ class MainWindow(QMainWindow):
         project = self._video_panel.project
         if project is not None:
             project.crossfade_duration = value
+            self._mark_dirty()
         self._update_project_summary()
 
     def _update_project_summary(self) -> None:
@@ -335,6 +376,7 @@ class MainWindow(QMainWindow):
 
     def _on_sequences_changed(self) -> None:
         self._update_project_summary()
+        self._mark_dirty()
         self._audio_processing_panel.set_sequence(self._sequence_list.current_sequence())
 
     def _on_auto_split_clicked(self) -> None:
@@ -390,23 +432,28 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_save_project_clicked(self) -> None:
+        self._save_project()
+
+    def _save_project(self) -> bool:
+        """Sauvegarde le projet (dialogue de fichier). Retourne True si le fichier a été écrit."""
         project = self._video_panel.project
         if project is None:
             QMessageBox.warning(self, "AudioCut Studio", "Importez une vidéo avant de sauvegarder un projet.")
-            return
+            return False
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Sauvegarder le projet", "", f"Projet AudioCut Studio (*{PROJECT_FILE_EXTENSION})"
         )
         if not path:
-            return
+            return False
         if not path.endswith(PROJECT_FILE_EXTENSION):
             path += PROJECT_FILE_EXTENSION
 
         save_project(project, path)
         add_recent_project(path)
+        self._set_dirty(False)
         self.statusBar().showMessage(f"Projet sauvegardé : {path}", 5000)
-        QMessageBox.information(self, "AudioCut Studio", f"Projet sauvegardé :\n{path}")
+        return True
 
     def _on_open_project_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -416,6 +463,8 @@ class MainWindow(QMainWindow):
             self._start_project_load(path)
 
     def _start_project_load(self, path: str, remember: bool = True) -> None:
+        if remember and not self._confirm_discard_changes():
+            return
         progress = QProgressDialog("Chargement du projet…", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setCancelButton(None)
@@ -431,6 +480,8 @@ class MainWindow(QMainWindow):
     def _on_project_loaded(self, project, progress: QProgressDialog, path: str | None) -> None:
         progress.close()
         self._video_panel.set_loaded_project(project)
+        # Projet récupéré d'une sauvegarde automatique (path None) : pas encore enregistré.
+        self._set_dirty(path is None)
         if path is not None:
             add_recent_project(path)
 

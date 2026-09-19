@@ -54,3 +54,14 @@ def synthetic_wav_file(tmp_path_factory):
         wav_file.writeframes(samples.tobytes())
 
     return str(out_path)
+
+
+@pytest.fixture(autouse=True)
+def _no_blocking_save_prompt(monkeypatch):
+    """La fermeture d'une fenêtre « modifiée » ouvre une QMessageBox modale : elle bloquerait les tests.
+
+    Par défaut on répond « Ne pas enregistrer » ; un test qui vérifie ce dialogue le remplace lui-même.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Discard)
