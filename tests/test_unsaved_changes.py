@@ -177,3 +177,38 @@ def test_loading_a_saved_project_is_clean(window, monkeypatch):
     window._on_project_loaded(object(), _Progress(), "C:/projets/demo.acsproject")
 
     assert not window._dirty
+
+
+def test_import_over_modified_project_asks_and_cancel_aborts(window, monkeypatch):
+    window._mark_dirty()
+    asked = _answer(monkeypatch, _BUTTONS.Cancel)
+    probed = []
+    monkeypatch.setattr(window._video_panel._ffprobe_service, "probe", lambda p: probed.append(p))
+
+    window._video_panel.import_video("C:/videos/nouvelle.mp4")
+
+    assert len(asked) == 1
+    assert probed == []
+
+
+def test_import_over_modified_project_proceeds_after_discard(window, monkeypatch):
+    window._mark_dirty()
+    _answer(monkeypatch, _BUTTONS.Discard)
+    probed = []
+    monkeypatch.setattr(window._video_panel._ffprobe_service, "probe", lambda p: probed.append(p) or (_ for _ in ()).throw(RuntimeError("stop")))
+
+    with pytest.raises(RuntimeError, match="stop"):
+        window._video_panel.import_video("C:/videos/nouvelle.mp4")
+
+    assert probed == ["C:/videos/nouvelle.mp4"]
+
+
+def test_import_over_clean_project_does_not_prompt(window, monkeypatch):
+    asked = _answer(monkeypatch, _BUTTONS.Cancel)
+    probed = []
+    monkeypatch.setattr(window._video_panel._ffprobe_service, "probe", lambda p: probed.append(p) or (_ for _ in ()).throw(RuntimeError("stop")))
+
+    with pytest.raises(RuntimeError, match="stop"):
+        window._video_panel.import_video("C:/videos/nouvelle.mp4")
+
+    assert asked == []

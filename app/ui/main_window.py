@@ -53,6 +53,7 @@ class MainWindow(QMainWindow):
         self._video_panel = VideoPanel(ffmpeg_binaries)
         self._waveform_widget = WaveformWidget()
         self._transport_controls = TransportControls()
+        self._video_panel.set_import_guard(self._confirm_discard_changes)
         self._sequence_list = SequenceListWidget(self._video_panel.ffmpeg_service)
         self._audio_processing_panel = AudioProcessingPanel(self._video_panel.ffmpeg_service)
 

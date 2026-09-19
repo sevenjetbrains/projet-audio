@@ -1,5 +1,6 @@
 """Panneau d'import vidéo : sélection du fichier, affichage des métadonnées, extraction audio."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Signal
@@ -46,6 +47,7 @@ class VideoPanel(QWidget):
         self._ffmpeg_service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
         self._worker: ExtractAudioWorker | None = None
         self._project = None
+        self._import_guard: Callable[[], bool] | None = None
 
         self._import_button = QPushButton("Importer une vidéo")
         self._import_button.clicked.connect(self._on_import_clicked)
@@ -94,6 +96,10 @@ class VideoPanel(QWidget):
         self._status_label.setText(f"Projet chargé : {project.name}")
         self.audio_ready.emit(project.original_audio_path, project.source_video.duration)
 
+    def set_import_guard(self, guard: Callable[[], bool] | None) -> None:
+        """Fonction appelée avant tout nouvel import ; si elle retourne False, l'import est abandonné."""
+        self._import_guard = guard
+
     def trigger_import(self) -> None:
         self._on_import_clicked()
 
@@ -110,6 +116,8 @@ class VideoPanel(QWidget):
     def import_video(self, path: str) -> None:
         """Analyse la vidéo, crée le projet associé et lance l'extraction audio."""
         if self.is_busy:
+            return
+        if self._import_guard is not None and not self._import_guard():
             return
 
         try:
