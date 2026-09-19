@@ -31,7 +31,7 @@ python -m app.main
 - Profils prédéfinis : Voix parlée, Interview, Podcast, Conférence, Enregistrement microphone, Voix faible
 - Suppression des silences et fusion avec fondu enchaîné (crossfade)
 - Export de la fusion (ou d'un fichier par séquence) en WAV, MP3, FLAC, M4A (AAC), OGG ou Opus
-- Sauvegarde/chargement de projet (.acsproject), annuler/rétablir (Ctrl+Z / Ctrl+Y), sauvegarde automatique toutes les 2 minutes avec récupération après plantage
+- Sauvegarde/chargement de projet (.acsproject), annuler/rétablir (Ctrl+Z / Ctrl+Y), menu Projets récents, sauvegarde automatique toutes les 2 minutes avec récupération après plantage
 
 ## Tests
 

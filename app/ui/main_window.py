@@ -1,5 +1,7 @@
 """Fenêtre principale d'AudioCut Studio."""
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
@@ -25,6 +27,7 @@ from app.services.project_service import (
     load_project,
     save_project,
 )
+from app.services.recent_projects import add_recent_project, load_recent_projects
 from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
@@ -112,7 +115,7 @@ class MainWindow(QMainWindow):
             "Voulez-vous le récupérer ?",
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self._start_project_load(autosaves[0])
+            self._start_project_load(autosaves[0], remember=False)
 
     def _on_autosave_tick(self) -> None:
         project = self._video_panel.project
@@ -143,12 +146,25 @@ class MainWindow(QMainWindow):
         project_menu = self.menuBar().addMenu("Projet")
         project_menu.addAction(save_action)
         project_menu.addAction(open_action)
+        self._recent_menu = project_menu.addMenu("Projets récents")
+        self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
 
         export_action = QAction("Exporter…", self)
         export_action.setShortcut(QKeySequence("Ctrl+E"))
         export_action.triggered.connect(self._on_export_clicked)
         export_menu = self.menuBar().addMenu("Export")
         export_menu.addAction(export_action)
+
+    def _populate_recent_menu(self) -> None:
+        self._recent_menu.clear()
+        recent = load_recent_projects()
+        if not recent:
+            self._recent_menu.addAction("(aucun)").setEnabled(False)
+            return
+        for path in recent:
+            action = self._recent_menu.addAction(Path(path).name)
+            action.setToolTip(path)
+            action.triggered.connect(lambda _checked=False, p=path: self._start_project_load(p))
 
     def _wire_signals(self) -> None:
         self._video_panel.audio_ready.connect(self._on_audio_ready)
@@ -247,6 +263,7 @@ class MainWindow(QMainWindow):
             path += PROJECT_FILE_EXTENSION
 
         save_project(project, path)
+        add_recent_project(path)
         QMessageBox.information(self, "AudioCut Studio", f"Projet sauvegardé :\n{path}")
 
     def _on_open_project_clicked(self) -> None:
@@ -256,7 +273,7 @@ class MainWindow(QMainWindow):
         if path:
             self._start_project_load(path)
 
-    def _start_project_load(self, path: str) -> None:
+    def _start_project_load(self, path: str, remember: bool = True) -> None:
         progress = QProgressDialog("Chargement du projet…", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setCancelButton(None)
@@ -265,13 +282,15 @@ class MainWindow(QMainWindow):
         self._load_worker = FFmpegTaskWorker(
             lambda: load_project(path, self._video_panel.ffprobe_service, self._video_panel.ffmpeg_service)
         )
-        self._load_worker.succeeded.connect(lambda project: self._on_project_loaded(project, progress))
+        self._load_worker.succeeded.connect(lambda project: self._on_project_loaded(project, progress, path if remember else None))
         self._load_worker.failed.connect(lambda message: self._on_project_load_failed(message, progress))
         self._load_worker.start()
 
-    def _on_project_loaded(self, project, progress: QProgressDialog) -> None:
+    def _on_project_loaded(self, project, progress: QProgressDialog, path: str | None) -> None:
         progress.close()
         self._video_panel.set_loaded_project(project)
+        if path is not None:
+            add_recent_project(path)
 
     def _on_project_load_failed(self, message: str, progress: QProgressDialog) -> None:
         progress.close()
