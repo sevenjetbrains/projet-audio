@@ -36,7 +36,7 @@ from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.auto_split_dialog import AutoSplitDialog
 from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
-from app.ui.shortcuts import set_button_shortcut
+from app.ui.shortcuts import set_button_shortcut, shortcuts_help_html
 from app.ui.transport_controls import TransportControls
 from app.ui.video_panel import VideoPanel
 from app.utils.time_utils import format_timecode
@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._build_theme_menu()
+        self._build_help_menu()
         self._wire_signals()
 
         QShortcut(QKeySequence(Qt.Key.Key_I), self, activated=self._mark_selection_start)
@@ -225,6 +226,16 @@ class MainWindow(QMainWindow):
             action = self._recent_menu.addAction(Path(path).name)
             action.setToolTip(path)
             action.triggered.connect(lambda _checked=False, p=path: self._start_project_load(p))
+
+    def _build_help_menu(self) -> None:
+        help_menu = self.menuBar().addMenu("Aide")
+        shortcuts_action = QAction("Raccourcis clavier", self)
+        shortcuts_action.setShortcut(QKeySequence("F1"))
+        shortcuts_action.triggered.connect(self._show_shortcuts_help)
+        help_menu.addAction(shortcuts_action)
+
+    def _show_shortcuts_help(self) -> None:
+        QMessageBox.information(self, "Raccourcis clavier", shortcuts_help_html())
 
     def _build_theme_menu(self) -> None:
         view_menu = self.menuBar().addMenu("Affichage")

@@ -57,6 +57,8 @@ class ExportDialog(QDialog):
 
         self._export_button = QPushButton("Exporter")
         self._export_button.clicked.connect(self._on_export_clicked)
+        self._export_button.setDefault(True)
+        self._export_button.setToolTip("Lancer l'export (Entrée)")
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 0)

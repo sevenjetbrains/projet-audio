@@ -51,6 +51,7 @@ class VideoPanel(QWidget):
 
         self._import_button = QPushButton("Importer une vidéo")
         self._import_button.clicked.connect(self._on_import_clicked)
+        self._import_button.setToolTip("Importer une vidéo (Ctrl+O)")
 
         self._info_labels: dict[str, QLabel] = {}
         form_layout = QFormLayout()

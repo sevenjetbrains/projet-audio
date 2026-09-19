@@ -105,3 +105,30 @@ def test_delete_button_removes_selected_sequence(window):
     window._sequence_list._delete_button.click()
 
     assert project.sequences == []
+
+
+def test_every_documented_shortcut_is_really_bound(window):
+    from app.ui.shortcuts import SHORTCUTS_HELP
+
+    bound = set(_all_shortcuts(window))
+    bound.add("Space")  # Qt.Key_Space : le QShortcut de la barre de lecture est exposé sous ce nom
+    documented = [key for entries in SHORTCUTS_HELP.values() for key, _ in entries]
+
+    missing = [key for key in documented if QKeySequence(key).toString() not in bound]
+    assert missing == []
+
+
+def test_help_menu_shows_all_shortcuts(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    shown = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a))
+
+    help_menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "Aide")
+    action = help_menu.actions()[0]
+    assert action.shortcut() == QKeySequence("F1")
+    action.trigger()
+
+    title, html = shown[0][1], shown[0][2]
+    assert title == "Raccourcis clavier"
+    assert "Supprimer" in html and "Fusionner et prévisualiser" in html and "Appliquer à la séquence" in html
