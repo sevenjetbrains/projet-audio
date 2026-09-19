@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -55,6 +56,18 @@ class ExportDialog(QDialog):
         self._separate_cb = QCheckBox("Un fichier par séquence (destination : dossier)")
         self._separate_cb.toggled.connect(self._on_separate_toggled)
 
+        self._normalize_cb = QCheckBox("Normaliser le volume (loudness)")
+        self._normalize_cb.toggled.connect(lambda checked: self._lufs_spin.setEnabled(checked))
+        self._lufs_spin = QDoubleSpinBox()
+        self._lufs_spin.setRange(-30.0, -5.0)
+        self._lufs_spin.setSingleStep(1.0)
+        self._lufs_spin.setValue(-16.0)
+        self._lufs_spin.setSuffix(" LUFS")
+        self._lufs_spin.setEnabled(False)
+        normalize_row = QHBoxLayout()
+        normalize_row.addWidget(self._normalize_cb)
+        normalize_row.addWidget(self._lufs_spin)
+
         self._export_button = QPushButton("Exporter")
         self._export_button.clicked.connect(self._on_export_clicked)
         self._export_button.setDefault(True)
@@ -75,6 +88,7 @@ class ExportDialog(QDialog):
         layout.addWidget(QLabel("Qualité :"))
         layout.addWidget(self._quality_combo)
         layout.addWidget(self._separate_cb)
+        layout.addLayout(normalize_row)
         layout.addWidget(self._export_button)
         layout.addWidget(self._progress_bar)
         layout.addWidget(self._status_label)
@@ -139,14 +153,17 @@ class ExportDialog(QDialog):
         from app.services.export_service import export_project, export_sequences_separately
 
         separate = self._separate_cb.isChecked()
+        normalize_lufs = self._lufs_spin.value() if self._normalize_cb.isChecked() else None
         self._export_button.setEnabled(False)
         self._progress_bar.show()
         self._status_label.setText("Export en cours…")
 
         if separate:
-            task = lambda: export_sequences_separately(self._project, self._ffmpeg_service, out_path, fmt, quality)
+            task = lambda: export_sequences_separately(
+                self._project, self._ffmpeg_service, out_path, fmt, quality, normalize_lufs
+            )
         else:
-            task = lambda: export_project(self._project, self._ffmpeg_service, out_path, fmt, quality)
+            task = lambda: export_project(self._project, self._ffmpeg_service, out_path, fmt, quality, normalize_lufs)
         self._worker = FFmpegTaskWorker(task)
         self._worker.succeeded.connect(lambda _: self._on_export_succeeded(out_path))
         self._worker.failed.connect(self._on_export_failed)
