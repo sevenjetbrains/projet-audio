@@ -2,7 +2,7 @@
 
 Application desktop pour extraire, nettoyer, organiser et fusionner des séquences audio à partir de vidéos. Fonctionne entièrement en local (aucun envoi de fichier sur Internet).
 
-État actuel : squelette du projet (Phase 1 — infrastructure). Aucune fonctionnalité métier n'est encore implémentée.
+État actuel : application fonctionnelle (extraction, nettoyage, fusion, export, sauvegarde de projet).
 
 ## Prérequis
 
@@ -23,6 +23,16 @@ pip install -r requirements.txt
 python -m app.main
 ```
 
+## Fonctionnalités
+
+- Import vidéo/audio, forme d'onde, lecture avec contrôles de transport
+- Création et gestion de séquences (début/fin, sélection, réorganisation)
+- Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)
+- Profils prédéfinis : Voix parlée, Interview, Podcast, Conférence, Enregistrement microphone, Voix faible
+- Suppression des silences et fusion avec fondu enchaîné (crossfade)
+- Export de la fusion ou des séquences
+- Sauvegarde/chargement de projet (.acsproject), annuler/rétablir (Ctrl+Z / Ctrl+Y), sauvegarde automatique toutes les 2 minutes avec récupération après plantage
+
 ## Tests
 
 ```bash
@@ -33,11 +43,11 @@ pytest
 
 ```
 app/
-  config/      # settings, constantes, détection ffmpeg/ffprobe
+  config/      # settings, constantes, profils audio, détection ffmpeg/ffprobe
   models/      # dataclasses Project, MediaInfo, Sequence, AudioSettings
-  services/    # logique métier (ffmpeg, séquences, export) — Phase 2+
-  audio/       # traitement DSP (waveform, filtres) — Phase 3+
-  workers/     # exécution asynchrone Qt (QThread/QRunnable) — Phase 2+
+  services/    # logique métier (ffmpeg, ffprobe, séquences, projet, export, traitement audio)
+  audio/       # DSP (waveform, filtres, détection de silences)
+  workers/     # exécution asynchrone Qt (ffmpeg, waveform)
   ui/          # fenêtres et widgets PySide6
   utils/       # helpers (fichiers, temps, logging)
 tests/
@@ -48,4 +58,4 @@ Le fichier vidéo/audio source n'est jamais modifié : tous les traitements pass
 
 ## Problèmes connus
 
-- Aucun pour l'instant (squelette uniquement).
+- Aucun recensé pour l'instant.
