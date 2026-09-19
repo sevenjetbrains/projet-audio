@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from app.models.project import Project
 from app.services import sequence_service
 from app.services.ffmpeg_service import FFmpegExecutionError, FFmpegService
+from app.ui.shortcuts import set_button_shortcut
 from app.ui.undo_commands import CallbackCommand
 from app.utils.time_utils import format_timecode
 
@@ -44,17 +45,21 @@ class SequenceListWidget(QWidget):
         self._list_widget.currentItemChanged.connect(self._on_current_item_changed)
         self._list_widget.itemSelectionChanged.connect(self._on_selection_changed)
 
-        play_button = QPushButton("▶ Lire")
-        play_button.clicked.connect(self._on_play_clicked)
-        rename_button = QPushButton("Renommer")
-        rename_button.clicked.connect(self._on_rename_clicked)
-        duplicate_button = QPushButton("Dupliquer")
-        duplicate_button.clicked.connect(self._on_duplicate_clicked)
-        delete_button = QPushButton("Supprimer")
-        delete_button.clicked.connect(self._on_delete_clicked)
+        self._play_button = QPushButton("▶ Lire")
+        self._play_button.clicked.connect(self._on_play_clicked)
+        set_button_shortcut(self._play_button, "Ctrl+L", "Lire la séquence")
+        self._rename_button = QPushButton("Renommer")
+        self._rename_button.clicked.connect(self._on_rename_clicked)
+        set_button_shortcut(self._rename_button, "F2")
+        self._duplicate_button = QPushButton("Dupliquer")
+        self._duplicate_button.clicked.connect(self._on_duplicate_clicked)
+        set_button_shortcut(self._duplicate_button, "Ctrl+D")
+        self._delete_button = QPushButton("Supprimer")
+        self._delete_button.clicked.connect(self._on_delete_clicked)
+        set_button_shortcut(self._delete_button, "Delete")
 
         buttons_layout = QHBoxLayout()
-        for button in (play_button, rename_button, duplicate_button, delete_button):
+        for button in (self._play_button, self._rename_button, self._duplicate_button, self._delete_button):
             buttons_layout.addWidget(button)
 
         layout = QVBoxLayout()

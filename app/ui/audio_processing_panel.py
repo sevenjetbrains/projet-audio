@@ -24,6 +24,7 @@ from app.models.project import Project
 from app.models.sequence import Sequence
 from app.services import audio_processor
 from app.services.ffmpeg_service import FFmpegService
+from app.ui.shortcuts import set_button_shortcut
 from app.ui.undo_commands import CallbackCommand
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
@@ -97,6 +98,10 @@ class AudioProcessingPanel(QWidget):
         self._apply_selection_button.clicked.connect(self._on_apply_selection_clicked)
         self._reset_button = QPushButton("Réinitialiser")
         self._reset_button.clicked.connect(self._on_reset_clicked)
+
+        set_button_shortcut(self._apply_button, "Ctrl+Return", "Appliquer le traitement à la séquence")
+        set_button_shortcut(self._apply_selection_button, "Ctrl+Shift+Return", "Appliquer le traitement à la sélection")
+        set_button_shortcut(self._reset_button, "Ctrl+R", "Réinitialiser le traitement")
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 0)

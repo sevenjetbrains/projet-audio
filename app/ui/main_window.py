@@ -36,6 +36,7 @@ from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.auto_split_dialog import AutoSplitDialog
 from app.ui.export_dialog import ExportDialog
 from app.ui.sequence_list import SequenceListWidget
+from app.ui.shortcuts import set_button_shortcut
 from app.ui.transport_controls import TransportControls
 from app.ui.video_panel import VideoPanel
 from app.utils.time_utils import format_timecode
@@ -67,6 +68,7 @@ class MainWindow(QMainWindow):
 
         self._create_sequence_button = QPushButton("Créer une séquence (Entrée)")
         self._create_sequence_button.clicked.connect(self._on_create_sequence_clicked)
+        self._create_sequence_button.setToolTip("Créer une séquence depuis la sélection (Entrée)")
 
         selection_form = QFormLayout()
         selection_form.addRow("Début :", self._selection_start_spin)
@@ -75,6 +77,7 @@ class MainWindow(QMainWindow):
 
         self._merge_preview_button = QPushButton("Fusionner et prévisualiser")
         self._merge_preview_button.clicked.connect(self._on_merge_preview_clicked)
+        set_button_shortcut(self._merge_preview_button, "Ctrl+M", "Fusionner et prévisualiser")
 
         self._crossfade_spin = QDoubleSpinBox()
         self._crossfade_spin.setRange(0.0, 5.0)

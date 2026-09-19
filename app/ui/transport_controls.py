@@ -5,6 +5,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
 
+from app.ui.shortcuts import set_button_shortcut
 from app.utils.time_utils import format_timecode
 
 
@@ -26,18 +27,22 @@ class TransportControls(QWidget):
         self._play_button = QPushButton("▶ Lecture")
         self._play_button.clicked.connect(self._toggle_play_pause)
         self._play_button.setEnabled(False)
+        self._play_button.setToolTip("Lecture / pause (Espace)")
 
         self._stop_button = QPushButton("⏹ Stop")
         self._stop_button.clicked.connect(self.stop)
         self._stop_button.setEnabled(False)
+        set_button_shortcut(self._stop_button, "Ctrl+Space", "Arrêter la lecture")
 
         self._back_button = QPushButton(f"⏪ {_SKIP_SECONDS:.0f} s")
         self._back_button.clicked.connect(lambda: self.skip(-_SKIP_SECONDS))
         self._back_button.setEnabled(False)
+        set_button_shortcut(self._back_button, "Alt+Left", f"Reculer de {_SKIP_SECONDS:.0f} s")
 
         self._forward_button = QPushButton(f"{_SKIP_SECONDS:.0f} s ⏩")
         self._forward_button.clicked.connect(lambda: self.skip(_SKIP_SECONDS))
         self._forward_button.setEnabled(False)
+        set_button_shortcut(self._forward_button, "Alt+Right", f"Avancer de {_SKIP_SECONDS:.0f} s")
 
         self._volume_slider = QSlider(Qt.Orientation.Horizontal)
         self._volume_slider.setRange(0, 100)
