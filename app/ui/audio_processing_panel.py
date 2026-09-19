@@ -3,6 +3,7 @@
 import copy
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -23,6 +24,7 @@ from app.models.project import Project
 from app.models.sequence import Sequence
 from app.services import audio_processor
 from app.services.ffmpeg_service import FFmpegService
+from app.ui.undo_commands import CallbackCommand
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
 
@@ -36,6 +38,8 @@ class AudioProcessingPanel(QWidget):
         self._sequence: Sequence | None = None
         self._worker: FFmpegTaskWorker | None = None
         self._selected_sequences: list[Sequence] = []
+        self._undo_stack: QUndoStack | None = None
+        self._pending: tuple[str, list[Sequence], list[tuple]] | None = None
 
         self._profile_combo = QComboBox()
         self._profile_combo.addItem(CUSTOM_PROFILE_LABEL)
@@ -161,6 +165,34 @@ class AudioProcessingPanel(QWidget):
         spin.setSuffix(" s")
         return spin
 
+    def set_undo_stack(self, undo_stack: QUndoStack | None) -> None:
+        """Pile Undo/Redo partagée avec la liste des séquences : traitements et réinitialisations y sont annulables."""
+        self._undo_stack = undo_stack
+
+    @staticmethod
+    def _capture(sequence: Sequence) -> tuple:
+        return (copy.deepcopy(sequence.audio_settings), sequence.processed_audio_path)
+
+    @staticmethod
+    def _restore(sequence: Sequence, state: tuple) -> None:
+        sequence.audio_settings = copy.deepcopy(state[0])
+        sequence.processed_audio_path = state[1]
+
+    def _push_state_change(self, description: str, sequences: list[Sequence], before: list[tuple], after: list[tuple]) -> None:
+        """Enregistre le passage de `before` à `after` comme une seule action annulable."""
+
+        def apply(states: list[tuple]) -> None:
+            for sequence, state in zip(sequences, states):
+                self._restore(sequence, state)
+            if self._sequence in sequences:
+                self._load_settings(self._sequence.audio_settings)
+            self.processed.emit()
+
+        if self._undo_stack is None:
+            apply(after)
+            return
+        self._undo_stack.push(CallbackCommand(description, lambda: apply(after), lambda: apply(before)))
+
     def set_project(self, project: Project) -> None:
         self._project = project
 
@@ -235,11 +267,12 @@ class AudioProcessingPanel(QWidget):
         if self._sequence is None or self._project is None:
             return
 
-        self._sequence.audio_settings = self._read_settings()
+        sequence = self._sequence
+        self._pending = (f"Traiter « {sequence.name} »", [sequence], [self._capture(sequence)])
+        sequence.audio_settings = self._read_settings()
 
         self._set_busy(True, "Traitement en cours…")
 
-        sequence = self._sequence
         project = self._project
         self._worker = FFmpegTaskWorker(
             lambda: audio_processor.process_sequence(project, sequence, self._ffmpeg_service)
@@ -255,6 +288,7 @@ class AudioProcessingPanel(QWidget):
 
         settings = self._read_settings()
         sequences = list(self._selected_sequences)
+        self._pending = (f"Traiter {len(sequences)} séquences", sequences, [self._capture(seq) for seq in sequences])
         for sequence in sequences:
             sequence.audio_settings = copy.deepcopy(settings)
 
@@ -275,16 +309,29 @@ class AudioProcessingPanel(QWidget):
 
     def _on_processing_succeeded(self, _result) -> None:
         self._set_busy(False, "Traitement appliqué.")
-        self.processed.emit()
+        pending, self._pending = self._pending, None
+        if pending is None:
+            self.processed.emit()
+            return
+        description, sequences, before = pending
+        self._push_state_change(description, sequences, before, [self._capture(seq) for seq in sequences])
 
     def _on_processing_failed(self, message: str) -> None:
+        # Le traitement a échoué : on rétablit les réglages/fichiers d'avant pour rester cohérent.
+        pending, self._pending = self._pending, None
+        if pending is not None:
+            _description, sequences, before = pending
+            for sequence, state in zip(sequences, before):
+                self._restore(sequence, state)
         self._set_busy(False, "Échec du traitement.")
         QMessageBox.critical(self, "AudioCut Studio — Erreur", message)
 
     def _on_reset_clicked(self) -> None:
         if self._sequence is None:
             return
-        audio_processor.reset_processing(self._sequence)
-        self._load_settings(self._sequence.audio_settings)
+        sequence = self._sequence
+        before = self._capture(sequence)
+        audio_processor.reset_processing(sequence)
+        after = self._capture(sequence)
+        self._push_state_change(f"Réinitialiser « {sequence.name} »", [sequence], [before], [after])
         self._status_label.setText("Traitement réinitialisé.")
-        self.processed.emit()

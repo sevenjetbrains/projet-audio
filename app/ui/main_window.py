@@ -56,6 +56,7 @@ class MainWindow(QMainWindow):
         self._video_panel.set_import_guard(self._confirm_discard_changes)
         self._sequence_list = SequenceListWidget(self._video_panel.ffmpeg_service)
         self._audio_processing_panel = AudioProcessingPanel(self._video_panel.ffmpeg_service)
+        self._audio_processing_panel.set_undo_stack(self._sequence_list.undo_stack)
 
         self._selection_start_spin = QDoubleSpinBox()
         self._selection_end_spin = QDoubleSpinBox()
