@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.services import sequence_service
-from app.services.export_service import ExportError, export_project, merge_sequences
+from app.services.export_service import ExportError, export_project, export_sequences_separately, merge_sequences
 from app.services.ffmpeg_service import FFmpegService
 from app.services.ffprobe_service import FFprobeService
 from app.services.project_service import create_project_for_video
@@ -79,3 +79,22 @@ def test_merge_sequences_with_crossfade(project_with_sequences):
 
     assert Path(final_wav).exists()
     assert Path(final_wav).stat().st_size > 0
+
+
+def test_export_sequences_separately_writes_one_file_per_sequence(project_with_sequences, tmp_path):
+    project, ffmpeg_service = project_with_sequences
+    project.sequences[0].name = 'Intro: "test"/1'
+
+    written = export_sequences_separately(project, ffmpeg_service, str(tmp_path / "out"), "WAV", "16")
+
+    assert [Path(p).name[:3] for p in written] == ["01_", "02_"]
+    assert all(Path(p).exists() and Path(p).stat().st_size > 0 for p in written)
+    assert all(Path(p).parent == tmp_path / "out" for p in written)
+
+
+def test_export_sequences_separately_requires_sequences(project_with_sequences, tmp_path):
+    project, ffmpeg_service = project_with_sequences
+    project.sequences.clear()
+
+    with pytest.raises(ExportError):
+        export_sequences_separately(project, ffmpeg_service, str(tmp_path), "WAV", "16")
