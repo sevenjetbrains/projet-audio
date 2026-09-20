@@ -168,11 +168,14 @@ class VideoPlayerPanel(QWidget):
 
     def _on_scrub_finished(self) -> None:
         self._scrubbing = False
+        # Position exacte au relâchement, quel que soit le dernier déplacement regroupé pendant le glissement.
         self._transport.set_position_seconds(self._position_slider.value() / 1000.0)
 
     def _on_slider_value_changed(self, value: int) -> None:
-        """Un clic direct dans la rainure déplace la lecture sans passer par un glissement."""
-        if not self._scrubbing:
+        """Pendant un glissement l'image suit en direct (déplacements regroupés) ; un clic dans la rainure saute."""
+        if self._scrubbing:
+            self._transport.seek_throttled(value / 1000.0)
+        else:
             self._transport.set_position_seconds(value / 1000.0)
 
     def _on_rate_changed(self, index: int) -> None:

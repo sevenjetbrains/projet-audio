@@ -247,6 +247,34 @@ class FFmpegService:
 
         self._run(cmd, total_duration=wav_duration(source_wav_path), on_progress=on_progress)
 
+    def create_preview_proxy(
+        self,
+        source_video_path: str,
+        out_path: str,
+        total_duration: float,
+        height: int,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> None:
+        """Encode une copie réduite à image clé très rapprochée (déplacements instantanés dans l'aperçu).
+
+        Écrite dans un fichier temporaire puis renommée : un aperçu à moitié écrit (arrêt, plantage) ne peut
+        jamais être pris pour une copie complète.
+        """
+        partial = out_path + ".part.mp4"
+        cmd = [
+            self._ffmpeg_path, "-y", "-i", source_video_path,
+            "-vf", f"scale=-2:{height}",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p",
+            "-g", "6", "-keyint_min", "6", "-sc_threshold", "0",
+            "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
+            partial,
+        ]
+        try:
+            self._run(cmd, total_duration=total_duration, on_progress=on_progress)
+            Path(partial).replace(out_path)
+        finally:
+            Path(partial).unlink(missing_ok=True)
+
     def _run(
         self,
         cmd: list[str],

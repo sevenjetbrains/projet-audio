@@ -34,6 +34,7 @@ from app.services.project_service import (
     save_project,
 )
 from app.services.recent_projects import add_recent_project, load_recent_projects
+from app.services.preview_proxy import build_preview_proxy, needs_preview_proxy
 from app.services.sequence_service import create_sequences_from_ranges, detect_speech_ranges
 from app.ui.app_toolbar import AppToolBar
 from app.ui.audio_processing_panel import AudioProcessingPanel
@@ -112,6 +113,8 @@ class MainWindow(QMainWindow):
         self._save_state_hint = label("Aucune modification en attente.", "hintLabel")
 
         self._playback_offset: float | None = 0.0
+        self._preview_proxy_path = ""
+        self._proxy_worker = None
         # La source est lue depuis le fichier vidéo (image + son synchronisés) ; si Qt ne sait pas
         # le décoder, on bascule une seule fois sur le WAV extrait par FFmpeg.
         self._video_playback_failed = False
@@ -543,6 +546,7 @@ class MainWindow(QMainWindow):
         self._waveform_widget.load(wav_path, duration)
         self._waveform_overview.load(wav_path, duration)
         self._video_playback_failed = False
+        self._preview_proxy_path = ""
         self._load_source_playback()
         self._playback_offset = 0.0
         self._sequence_list.set_project(self._video_panel.project)
@@ -565,6 +569,7 @@ class MainWindow(QMainWindow):
         self._selection_start_spin.setValue(0.0)
         self._selection_end_spin.setValue(0.0)
         self._status_hint_label.setText("Prêt · extraction terminée")
+        self._start_preview_proxy()
 
     def _source_playback_path(self) -> str:
         """Média à lire pour la source : la vidéo (image + son), ou le WAV extrait en repli."""
@@ -573,7 +578,7 @@ class MainWindow(QMainWindow):
             return ""
         video = project.source_video
         if video is not None and video.path and not self._video_playback_failed:
-            return video.path
+            return self._preview_proxy_path or video.path
         return project.original_audio_path
 
     def _load_source_playback(self) -> None:
@@ -583,6 +588,37 @@ class MainWindow(QMainWindow):
         self._transport_controls.set_source(path)
         self._video_preview.set_active(not self._video_playback_failed)
         self._video_player_panel.set_synchronised(not self._video_playback_failed)
+
+    # --- Aperçu fluide (copie allégée de la vidéo) -----------------------------------
+
+    def _start_preview_proxy(self) -> None:
+        """Prépare en arrière-plan la copie d'aperçu si la vidéo est assez lourde pour saccader."""
+        project = self._video_panel.project
+        if project is None or not needs_preview_proxy(project.source_video):
+            return
+        service = self._video_panel.ffmpeg_service
+        self._status_hint_label.setText("Préparation de l'aperçu fluide… 0 %")
+        worker = FFmpegTaskWorker(lambda report: build_preview_proxy(project, service, report), with_progress=True)
+        worker.progress.connect(
+            lambda percent: self._status_hint_label.setText(f"Préparation de l'aperçu fluide… {percent} %")
+        )
+        worker.succeeded.connect(lambda path: self._on_preview_proxy_ready(project, path))
+        worker.failed.connect(self._on_preview_proxy_failed)
+        self._proxy_worker = worker
+        worker.start()
+
+    def _on_preview_proxy_ready(self, project, path: str) -> None:
+        """Bascule la lecture de la source sur la copie légère, sans perdre la position ni l'état lecture."""
+        if project is not self._video_panel.project or self._video_playback_failed:
+            return  # un autre projet a été ouvert entre-temps
+        self._preview_proxy_path = path
+        self._status_hint_label.setText("Aperçu fluide prêt")
+        if self._playback_offset == 0.0:
+            self._transport_controls.replace_source_keep_position(path)
+
+    def _on_preview_proxy_failed(self, _message: str) -> None:
+        """Sans copie d'aperçu on garde la vidéo d'origine : plus lente à parcourir, mais fonctionnelle."""
+        self._status_hint_label.setText("Prêt · aperçu fluide indisponible")
 
     def _on_playback_error(self, message: str) -> None:
         """Vidéo illisible par Qt : on rebascule sur l'audio extrait, qui lui est toujours lisible."""

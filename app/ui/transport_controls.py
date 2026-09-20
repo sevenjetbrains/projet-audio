@@ -1,6 +1,6 @@
 """Contrôles de lecture (Play/Pause, position) encapsulant QMediaPlayer/QAudioOutput."""
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QWidget
@@ -14,6 +14,8 @@ _SKIP_SECONDS = 5.0
 _PLAY_ICON = "play"
 _PAUSE_ICON = "pause"
 _DEFAULT_VOLUME = 78
+# Délai minimal entre deux déplacements pendant un glissement : au-delà, seul le dernier est appliqué.
+_SEEK_INTERVAL_MS = 40
 
 
 class TransportControls(QWidget):
@@ -30,6 +32,13 @@ class TransportControls(QWidget):
         self._player.playbackStateChanged.connect(self._on_playback_state_changed)
         self._player.positionChanged.connect(self._on_position_changed)
         self._player.errorOccurred.connect(self._on_error_occurred)
+
+        self._seek_timer = QTimer(self)
+        self._seek_timer.setSingleShot(True)
+        self._seek_timer.setInterval(_SEEK_INTERVAL_MS)
+        self._seek_timer.timeout.connect(self._flush_pending_seek)
+        self._pending_seek_ms: int | None = None
+        self._restore_slot = None
 
         self._play_button = icon_button(_PLAY_ICON, size=40)
         self._play_button.setProperty("accent", "true")
@@ -156,7 +165,50 @@ class TransportControls(QWidget):
         self._player.setPlaybackRate(rate)
 
     def set_position_seconds(self, seconds: float) -> None:
+        """Déplacement immédiat et exact (clic, relâchement du curseur) ; annule tout déplacement en attente."""
+        self._pending_seek_ms = None
         self._player.setPosition(int(seconds * 1000))
+
+    def seek_throttled(self, seconds: float) -> None:
+        """Déplacement pour un glissement continu : le premier est immédiat, les suivants sont regroupés.
+
+        Chaque déplacement oblige le lecteur à redécoder depuis une image clé ; en envoyer un à chaque
+        pixel du curseur les empile et l'image prend du retard. Ici seul le dernier emplacement demandé
+        est appliqué, au plus une fois toutes les 40 ms.
+        """
+        milliseconds = int(seconds * 1000)
+        if self._seek_timer.isActive():
+            self._pending_seek_ms = milliseconds
+            return
+        self._player.setPosition(milliseconds)
+        self._seek_timer.start()
+
+    def _flush_pending_seek(self) -> None:
+        if self._pending_seek_ms is None:
+            return
+        milliseconds, self._pending_seek_ms = self._pending_seek_ms, None
+        self._player.setPosition(milliseconds)
+        self._seek_timer.start()  # laisse respirer le lecteur avant d'accepter le déplacement suivant
+
+    def replace_source_keep_position(self, path: str) -> None:
+        """Change le média en gardant la position et l'état lecture/pause (ex. bascule vers l'aperçu fluide)."""
+        position = self._player.position()
+        was_playing = self.is_playing
+        if self._restore_slot is not None:
+            self._player.mediaStatusChanged.disconnect(self._restore_slot)
+
+        def restore(status) -> None:
+            if status not in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+                return
+            self._player.mediaStatusChanged.disconnect(restore)
+            self._restore_slot = None
+            self._player.setPosition(position)
+            if was_playing:
+                self._player.play()
+
+        self._restore_slot = restore
+        self._player.mediaStatusChanged.connect(restore)
+        self.set_source(path)
 
     def toggle_play_pause(self) -> None:
         """Bascule lecture/pause (barre de transport, touche Espace, bouton du lecteur vidéo)."""
