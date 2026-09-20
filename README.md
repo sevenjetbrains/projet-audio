@@ -27,6 +27,7 @@ python -m app.main
 
 - Plein écran de l'aperçu vidéo avec barre de contrôle (lecture/pause, progression cliquable, temps écoulé et durée, masquage automatique ; Échap ou double-clic pour revenir)
 - Aperçu fluide : copie allégée de la vidéo préparée en arrière-plan pour se déplacer instantanément (avant comme arrière)
+- Bornes de la sélection ajustables directement sur la waveform (poignées à tirer, en direct)
 - Boucle de la sélection (bouton ou L) : les bornes se règlent en écoutant, la boucle suit les changements
 - Écouter la sélection (bouton ou Maj+Espace) : lit uniquement la plage choisie puis s'arrête ; touche F / F11 pour le plein écran
 - Import vidéo par dialogue ou par glisser-déposer (un projet .acsproject déposé est ouvert), forme d'onde, lecture avec contrôles de transport (lecture/pause avec Espace, stop, ±5 s, volume) ; touches I / O pour marquer le début / la fin de la sélection à la position de lecture, Entrée pour créer la séquence

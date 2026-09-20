@@ -16,6 +16,8 @@ from app.config.themes import Theme, get_theme
 from app.workers.waveform_worker import WaveformWorker
 
 _DRAG_THRESHOLD_PX = 4
+_HANDLE_GRAB_PX = 7  # distance au bord d'une sélection à laquelle on peut le saisir
+_MIN_SELECTION_SECONDS = 0.02  # les deux bornes ne peuvent ni se croiser ni se confondre
 _MIN_VIEW_SPAN_SECONDS = 0.2
 _ZOOM_IN_FACTOR = 0.8
 _ZOOM_OUT_FACTOR = 1.25
@@ -67,7 +69,7 @@ class WaveformWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(160)
-        self.setMouseTracking(False)
+        self.setMouseTracking(True)  # le survol des bornes de la sélection change le curseur
 
         self._wav_path: str | None = None
         self._duration = 0.0
@@ -83,6 +85,8 @@ class WaveformWidget(QWidget):
         self._pending_selection: tuple[float, float] | None = None
         self._drag_start_x: float | None = None
         self._dragging = False
+        self._edge_drag: str | None = None  # « start » ou « end » pendant le déplacement d'une borne
+        self._hover_edge: str | None = None
 
         self._worker: WaveformWorker | None = None
         self._theme: Theme = get_theme("")
@@ -229,8 +233,26 @@ class WaveformWidget(QWidget):
 
     # --- Interaction souris ------------------------------------------------
 
+    def edge_at(self, x: float) -> str | None:
+        """Borne de la sélection (« start » ou « end ») à moins de _HANDLE_GRAB_PX pixels de `x`, sinon None."""
+        if self._selection is None or self._duration <= 0:
+            return None
+        start_x, end_x = (self._time_to_x(t) for t in self._selection)
+        near = [(abs(x - edge_x), name) for name, edge_x in (("start", start_x), ("end", end_x)) if abs(x - edge_x) <= _HANDLE_GRAB_PX]
+        if not near:
+            return None
+        # Sélection très étroite : les deux bornes sont à portée, on prend la plus proche.
+        return min(near)[1]
+
     def mousePressEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self._duration <= 0:
+            return
+        edge = self.edge_at(event.position().x())
+        if edge is not None:
+            self._edge_drag = edge  # on déplace une borne existante au lieu de créer une nouvelle sélection
+            self._drag_start_x = None
+            self._dragging = False
+            self.setCursor(Qt.CursorShape.SplitHCursor)
             return
         self._drag_start_x = event.position().x()
         self._dragging = False
@@ -244,9 +266,48 @@ class WaveformWidget(QWidget):
         # Le relâchement qui suit ce double-clic ne doit pas être traité comme un nouveau clic simple.
         self._drag_start_x = None
         self._dragging = False
+        self._edge_drag = None
+
+    def _move_edge(self, x: float) -> None:
+        """Déplace la borne saisie sous la souris, sans croiser l'autre borne ni sortir de l'audio."""
+        assert self._selection is not None
+        start, end = self._selection
+        t = min(max(self._x_to_time(x), 0.0), self._duration)
+        if self._edge_drag == "start":
+            start = min(t, end - _MIN_SELECTION_SECONDS)
+            start = max(start, 0.0)
+        else:
+            end = max(t, start + _MIN_SELECTION_SECONDS)
+            end = min(end, self._duration)
+        if (start, end) != self._selection:
+            self._selection = (start, end)
+            self.selection_changed.emit(start, end)  # en direct : champs Début/Fin et boucle d'écoute suivent
+            self.update()
+
+    def _update_hover(self, x: float) -> None:
+        edge = self.edge_at(x)
+        if edge == self._hover_edge:
+            return
+        self._hover_edge = edge
+        if edge is None:
+            self.unsetCursor()
+        else:
+            self.setCursor(Qt.CursorShape.SplitHCursor)
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        if self._edge_drag is None and self._hover_edge is not None:
+            self._hover_edge = None
+            self.unsetCursor()
+            self.update()
+        super().leaveEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        if self._edge_drag is not None:
+            self._move_edge(event.position().x())
+            return
         if self._drag_start_x is None:
+            self._update_hover(event.position().x())  # simple survol : curseur de redimensionnement près d'une borne
             return
         current_x = event.position().x()
         if not self._dragging and abs(current_x - self._drag_start_x) < _DRAG_THRESHOLD_PX:
@@ -261,6 +322,14 @@ class WaveformWidget(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event) -> None:
+        if self._edge_drag is not None:
+            self._move_edge(event.position().x())
+            self._edge_drag = None
+            self._hover_edge = self.edge_at(event.position().x())
+            if self._hover_edge is None:
+                self.unsetCursor()
+            self.update()
+            return
         if self._drag_start_x is None:
             return
         if self._dragging and self._pending_selection is not None:
@@ -286,6 +355,27 @@ class WaveformWidget(QWidget):
         event.accept()
 
     # --- Rendu -------------------------------------------------------------
+
+    def _paint_handles(self, painter: QPainter, height: int) -> None:
+        """Traits verticaux aux deux bornes de la sélection, avec une poignée : la borne survolée ressort."""
+        if self._selection is None:
+            return
+        base = QColor(self._theme.color("accent"))
+        for name, seconds in zip(("start", "end"), self._selection):
+            active = name in (self._hover_edge, self._edge_drag)
+            x = self._time_to_x(seconds)
+            color = QColor(base)
+            color.setAlpha(255 if active else 190)
+            painter.fillRect(QRectF(x - (1.5 if active else 1.0), 0, 3.0 if active else 2.0, height), color)
+            grip_width, grip_height = (10.0, 30.0) if active else (7.0, 24.0)
+            grip = QRectF(x - grip_width / 2, (height - grip_height) / 2, grip_width, grip_height)
+            painter.setBrush(color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(grip, 3, 3)
+            painter.setPen(QColor(255, 255, 255, 230))  # deux traits blancs : l'apparence d'une poignée
+            for dx in (-1.5, 1.5):
+                painter.drawLine(int(x + dx), int(grip.top() + 7), int(x + dx), int(grip.bottom() - 7))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
 
     def _paint_panel(self, painter: QPainter) -> None:
         """Fond arrondi et bordure de la carte, pour que le widget se fonde dans la maquette."""
@@ -427,6 +517,8 @@ class WaveformWidget(QWidget):
             fill = QColor(self._theme.color("selection_fill"))
             fill.setAlpha(_SELECTION_ALPHA)
             painter.fillRect(QRectF(x1, 0, x2 - x1, height), fill)
+            if not self._dragging:  # pendant la création d'une sélection, pas de poignées à saisir
+                self._paint_handles(painter, height)
 
         if self._duration > 0:
             self._paint_playhead(painter, width, height)

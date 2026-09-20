@@ -653,6 +653,8 @@ class MainWindow(QMainWindow):
         self._selection_start_spin.blockSignals(False)
         self._selection_end_spin.blockSignals(False)
         self._selection_card.refresh_duration()
+        # Borne tirée sur la waveform pendant une écoute en boucle : la boucle suit sans s'interrompre.
+        self._transport_controls.update_range(start, end)
 
     def _mark_selection_start(self) -> None:
         """Raccourci I : place le début de la sélection à la position de lecture."""
