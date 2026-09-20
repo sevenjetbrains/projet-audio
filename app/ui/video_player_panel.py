@@ -65,7 +65,7 @@ class VideoPlayerPanel(QWidget):
         self._snapshot_button.clicked.connect(self._save_snapshot)
         self._snapshot_button.setToolTip("Enregistrer l'image affichée en PNG")
         self._fullscreen_button = icon_button("fullscreen")
-        self._fullscreen_button.clicked.connect(self._toggle_fullscreen)
+        self._fullscreen_button.clicked.connect(self.toggle_fullscreen)
         self._fullscreen_button.setToolTip("Afficher l'aperçu en plein écran")
 
         self._rate_combo = QComboBox()
@@ -199,7 +199,7 @@ class VideoPlayerPanel(QWidget):
         self._transport.set_muted(muted)
         set_button_icon(self._mute_button, "mute" if muted else "volume")
 
-    def _toggle_fullscreen(self) -> None:
+    def toggle_fullscreen(self) -> None:
         """Plein écran de la seule image vidéo (Échap ou nouveau clic pour revenir)."""
         self._preview.toggle_fullscreen()
 

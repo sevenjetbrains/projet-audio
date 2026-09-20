@@ -22,6 +22,7 @@ class TransportControls(QWidget):
     position_changed = Signal(float)
     playback_error = Signal(str)
     playing_changed = Signal(bool)
+    range_finished = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -39,6 +40,9 @@ class TransportControls(QWidget):
         self._seek_timer.timeout.connect(self._flush_pending_seek)
         self._pending_seek_ms: int | None = None
         self._restore_slot = None
+        # Lecture d'une plage (« écouter la sélection ») : arrêt automatique à la fin.
+        self._range_end_ms: int | None = None
+        self._range_armed = False
 
         self._play_button = icon_button(_PLAY_ICON, size=40)
         self._play_button.setProperty("accent", "true")
@@ -103,6 +107,7 @@ class TransportControls(QWidget):
     # --- Source et état ---------------------------------------------------
 
     def set_source(self, wav_path: str) -> None:
+        self._clear_range()
         self._player.setSource(QUrl.fromLocalFile(wav_path))
         for button in (self._play_button, self._stop_button, self._back_button, self._forward_button):
             button.setEnabled(True)
@@ -138,11 +143,31 @@ class TransportControls(QWidget):
         self.set_source(wav_path)
         self._player.play()
 
+    def play_range(self, start_seconds: float, end_seconds: float) -> None:
+        """Lit de `start` à `end` puis se met en pause à la fin (écouter une sélection avant de la couper)."""
+        if not self._play_button.isEnabled() or end_seconds <= start_seconds:
+            return
+        self._pending_seek_ms = None
+        self._range_end_ms = int(end_seconds * 1000)
+        self._range_armed = False  # armée à la première position reçue AVANT la fin (voir _on_position_changed)
+        self._player.setPosition(int(start_seconds * 1000))
+        self._player.play()
+
+    @property
+    def is_playing_range(self) -> bool:
+        return self._range_end_ms is not None
+
+    def _clear_range(self) -> None:
+        self._range_end_ms = None
+        self._range_armed = False
+
     def stop(self) -> None:
+        self._clear_range()
         self._player.stop()
 
     def skip(self, delta_seconds: float) -> None:
         """Avance ou recule la lecture, bornée à [0, durée]."""
+        self._clear_range()
         target = self._player.position() + int(delta_seconds * 1000)
         duration = self._player.duration()
         if duration > 0:
@@ -167,6 +192,7 @@ class TransportControls(QWidget):
     def set_position_seconds(self, seconds: float) -> None:
         """Déplacement immédiat et exact (clic, relâchement du curseur) ; annule tout déplacement en attente."""
         self._pending_seek_ms = None
+        self._clear_range()  # l'utilisateur reprend la main : plus d'arrêt automatique
         self._player.setPosition(int(seconds * 1000))
 
     def seek_throttled(self, seconds: float) -> None:
@@ -176,6 +202,7 @@ class TransportControls(QWidget):
         pixel du curseur les empile et l'image prend du retard. Ici seul le dernier emplacement demandé
         est appliqué, au plus une fois toutes les 40 ms.
         """
+        self._clear_range()
         milliseconds = int(seconds * 1000)
         if self._seek_timer.isActive():
             self._pending_seek_ms = milliseconds
@@ -238,3 +265,18 @@ class TransportControls(QWidget):
         seconds = position_ms / 1000.0
         self._position_label.setText(f"{format_timecode(seconds)} / {format_timecode(self.duration_seconds)}")
         self.position_changed.emit(seconds)
+        self._check_range_end(position_ms)
+
+    def _check_range_end(self, position_ms: int) -> None:
+        end = self._range_end_ms
+        if end is None:
+            return
+        if position_ms < end:
+            self._range_armed = True
+            return
+        if not self._range_armed:
+            return  # position périmée reçue avant que le déplacement au début de la plage soit appliqué
+        self._clear_range()
+        self._player.pause()
+        self._player.setPosition(end)
+        self.range_finished.emit()

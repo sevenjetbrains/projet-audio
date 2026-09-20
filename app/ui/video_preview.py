@@ -117,7 +117,7 @@ class _FullscreenWindow(QWidget):
     def keyPressEvent(self, event) -> None:
         # Traitées ici plutôt que par des raccourcis : elles marchent même si Qt ne juge pas la fenêtre « active ».
         key = event.key()
-        if key == Qt.Key.Key_Escape:
+        if key in (Qt.Key.Key_Escape, Qt.Key.Key_F, Qt.Key.Key_F11):
             self.exit_requested.emit()
         elif key == Qt.Key.Key_Space:
             self._controls.play_toggled.emit()

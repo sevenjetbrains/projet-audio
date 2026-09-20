@@ -16,6 +16,7 @@ class SelectionCard(QWidget):
     mark_start_requested = Signal()
     mark_end_requested = Signal()
     create_requested = Signal()
+    listen_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -26,6 +27,10 @@ class SelectionCard(QWidget):
 
         self._mark_start_button = self._mark_button("Début", "I", self.mark_start_requested)
         self._mark_end_button = self._mark_button("Fin", "O", self.mark_end_requested)
+
+        self.listen_button = QPushButton("Écouter")
+        self.listen_button.setToolTip("Écouter uniquement la sélection, puis s'arrêter (Maj+Espace)")
+        self.listen_button.clicked.connect(self.listen_requested.emit)
 
         self.create_button = accent_button("Créer la séquence")
         self.create_button.clicked.connect(self.create_requested.emit)
@@ -65,6 +70,7 @@ class SelectionCard(QWidget):
         actions = QHBoxLayout()
         actions.setSpacing(8)
         actions.addWidget(hint, 1)
+        actions.addWidget(self.listen_button)
         actions.addWidget(self._mark_start_button)
         actions.addWidget(self._mark_end_button)
         actions.addWidget(self.create_button)
@@ -81,6 +87,7 @@ class SelectionCard(QWidget):
         """Met à jour l'affichage « durée … » (à appeler si les champs changent signaux bloqués)."""
         span = max(self.end_spin.value() - self.start_spin.value(), 0.0)
         self._duration_label.setText(f"durée {format_clock(span)}")
+        self.listen_button.setEnabled(span > 0)  # rien à écouter tant qu'aucune plage n'est choisie
 
     def set_range(self, maximum: float) -> None:
         """Borne haute des deux champs (durée de l'audio source)."""

@@ -349,6 +349,9 @@ class MainWindow(QMainWindow):
     def _register_shortcuts(self) -> None:
         QShortcut(QKeySequence(Qt.Key.Key_I), self, activated=self._mark_selection_start)
         QShortcut(QKeySequence(Qt.Key.Key_O), self, activated=self._mark_selection_end)
+        QShortcut(QKeySequence("Shift+Space"), self, activated=self._listen_to_selection)
+        for key in (Qt.Key.Key_F, Qt.Key.Key_F11):
+            QShortcut(QKeySequence(key), self, activated=self._video_player_panel.toggle_fullscreen)
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             QShortcut(QKeySequence(key), self, activated=self._on_create_sequence_clicked)
 
@@ -480,6 +483,7 @@ class MainWindow(QMainWindow):
         self._selection_card.mark_start_requested.connect(self._mark_selection_start)
         self._selection_card.mark_end_requested.connect(self._mark_selection_end)
         self._selection_card.create_requested.connect(self._on_create_sequence_clicked)
+        self._selection_card.listen_requested.connect(self._listen_to_selection)
         self._silence_card.split_requested.connect(self._run_auto_split)
 
         self._sequence_list.play_requested.connect(self._on_sequence_play_requested)
@@ -675,15 +679,30 @@ class MainWindow(QMainWindow):
             return
         self._sequence_list.add_sequence_from_selection(start, end)
 
-    def _on_waveform_seek_requested(self, seconds: float) -> None:
-        """Un clic sur la waveform (piste source) doit reprendre la lecture de la source,
-        même si une séquence ou le résultat fusionné était en cours de lecture."""
+    def _ensure_source_playback(self) -> None:
+        """Reprend la lecture de la source si une séquence ou le résultat fusionné était chargé."""
         if self._playback_offset != 0.0 and self._source_playback_path():
             self._load_source_playback()
             self._playback_offset = 0.0
             self._video_player_panel.set_now_playing("source")
             self._transport_controls.set_now_playing("Source complète")
+
+    def _on_waveform_seek_requested(self, seconds: float) -> None:
+        """Un clic sur la waveform (piste source) doit reprendre la lecture de la source,
+        même si une séquence ou le résultat fusionné était en cours de lecture."""
+        self._ensure_source_playback()
         self._transport_controls.set_position_seconds(seconds)
+
+    def _listen_to_selection(self) -> None:
+        """Écoute uniquement la plage sélectionnée (image et son de la source), puis s'arrête à la fin."""
+        project = self._video_panel.project
+        start = self._selection_start_spin.value()
+        end = self._selection_end_spin.value()
+        if project is None or end <= start:
+            self.statusBar().showMessage("Sélectionnez une plage sur la waveform avant de l'écouter.", 4000)
+            return
+        self._ensure_source_playback()
+        self._transport_controls.play_range(start, end)
 
     # --- Séquences -----------------------------------------------------------
 
