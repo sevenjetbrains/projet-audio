@@ -114,6 +114,7 @@ class MainWindow(QMainWindow):
 
         self._playback_offset: float | None = 0.0
         self._editing_sequence_id: str | None = None
+        self._playing_sequence_id: str | None = None  # séquence chargée dans le lecteur (comparaison A/B)
         self._preview_proxy_path = ""
         self._proxy_worker = None
         # La source est lue depuis le fichier vidéo (image + son synchronisés) ; si Qt ne sait pas
@@ -489,6 +490,7 @@ class MainWindow(QMainWindow):
         self._selection_card.edit_cancelled.connect(self._stop_bounds_edit)
         self._sequence_list.edit_bounds_requested.connect(self._start_bounds_edit)
         self._sequence_list.split_requested.connect(self._split_sequence_at_playhead)
+        self._sequence_list.original_toggled.connect(self._on_original_toggled)
         self._selection_card.loop_toggled.connect(self._transport_controls.set_loop)
         self._silence_card.split_requested.connect(self._run_auto_split)
 
@@ -593,6 +595,7 @@ class MainWindow(QMainWindow):
         return project.original_audio_path
 
     def _load_source_playback(self) -> None:
+        self._playing_sequence_id = None
         path = self._source_playback_path()
         if not path:
             return
@@ -779,9 +782,29 @@ class MainWindow(QMainWindow):
 
     def _on_sequence_play_requested(self, name: str, audio_path: str, source_start: float) -> None:
         self._playback_offset = source_start
-        self._transport_controls.set_now_playing(name)
-        self._video_player_panel.set_now_playing(name)
+        sequence = self._sequence_list.current_sequence()
+        self._playing_sequence_id = sequence.id if sequence is not None and sequence.source_start == source_start else None
+        label = self._sequence_playback_label(sequence) if self._playing_sequence_id else name
+        self._transport_controls.set_now_playing(label)
+        self._video_player_panel.set_now_playing(label)
         self._transport_controls.load_and_play(audio_path)
+
+    def _sequence_playback_label(self, sequence) -> str:
+        """Nom affiché pendant la lecture ; précise « original » quand on écoute l'audio sans traitement."""
+        if self._sequence_list.plays_original and sequence.processed_audio_path:
+            return f"{sequence.name} · original"
+        return sequence.name
+
+    def _on_original_toggled(self, _checked: bool) -> None:
+        """Bascule A/B en cours d'écoute : même séquence, autre version, à la même position (sans coupure)."""
+        sequence_id = self._playing_sequence_id
+        sequence = self._sequence_list.get_sequence(sequence_id) if sequence_id else None
+        if sequence is None or self._playback_offset != sequence.source_start:
+            return  # aucune séquence en cours de lecture : le réglage servira à la prochaine lecture
+        self._transport_controls.replace_source_keep_position(self._sequence_list.playback_path(sequence))
+        label = self._sequence_playback_label(sequence)
+        self._transport_controls.set_now_playing(label)
+        self._video_player_panel.set_now_playing(label)
 
     def _on_playback_position_changed(self, seconds: float) -> None:
         if self._playback_offset is not None:
@@ -895,6 +918,7 @@ class MainWindow(QMainWindow):
         # Le résultat fusionné n'a pas de correspondance simple avec la timeline source
         # (ordre différent, crossfades) : on n'y déplace pas la tête de lecture.
         self._playback_offset = None
+        self._playing_sequence_id = None
         self._transport_controls.set_now_playing("Montage fusionné")
         self._video_player_panel.set_now_playing("montage")
         self._transport_controls.load_and_play(final_wav)

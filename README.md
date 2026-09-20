@@ -36,6 +36,7 @@ python -m app.main
 - Ajustement des bornes d'une séquence existante (poignées sur la waveform) et division à la tête de lecture, annulables ; les traitements sont conservés
 - Création et gestion de séquences (début/fin, réorganisation par glisser-déposer, sélection multiple : suppression, duplication et traitement en lot)
 - Découpage automatique en séquences selon les silences, avec aperçu des passages détectés (à cocher), annulable en une action
+- Comparaison A/B (bouton Original, Ctrl+B) : bascule en cours d'écoute entre l'audio brut et l'audio traité, à la même position
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)
 - Profils prédéfinis : Voix parlée, Interview, Podcast, Conférence, Enregistrement microphone, Voix faible
 - Thèmes sombre et clair (menu Affichage), choix mémorisé

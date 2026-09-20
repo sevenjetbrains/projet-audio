@@ -43,6 +43,7 @@ class SequenceListWidget(QWidget):
     selection_changed = Signal(list)
     edit_bounds_requested = Signal(str)
     split_requested = Signal(str)
+    original_toggled = Signal(bool)
     processing_requested = Signal()
 
     def __init__(self, ffmpeg_service: FFmpegService, parent: QWidget | None = None) -> None:
@@ -85,6 +86,13 @@ class SequenceListWidget(QWidget):
         self._split_button = QPushButton("Diviser")
         self._split_button.clicked.connect(self._on_split_clicked)
         set_button_shortcut(self._split_button, "S", "Diviser la séquence à la tête de lecture")
+        self._original_button = QPushButton("Original")
+        self._original_button.setCheckable(True)
+        self._original_button.toggled.connect(self.original_toggled.emit)
+        set_button_shortcut(
+            self._original_button, "Ctrl+B",
+            "Écouter la version d'origine, sans traitement, pour comparer avec la version traitée (A/B)",
+        )
         self._delete_button = icon_button("trash")
         self._delete_button.setProperty("danger", "true")
         self._delete_button.clicked.connect(self._on_delete_clicked)
@@ -128,6 +136,7 @@ class SequenceListWidget(QWidget):
         edit_buttons.setSpacing(8)
         edit_buttons.addWidget(self._bounds_button, 1)
         edit_buttons.addWidget(self._split_button, 1)
+        edit_buttons.addWidget(self._original_button, 1)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(16, 16, 16, 16)
@@ -174,6 +183,17 @@ class SequenceListWidget(QWidget):
             redo_fn=lambda: sequence_service.insert_sequence(self._project, sequence),
             undo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, sequence.id),
         )
+
+    # --- Comparaison avant / après traitement -----------------------------------------------------
+
+    @property
+    def plays_original(self) -> bool:
+        """Vrai quand « Original » est enfoncé : les lectures utilisent l'audio brut, sans traitement."""
+        return self._original_button.isChecked()
+
+    def playback_path(self, sequence) -> str:
+        """Fichier à lire pour une séquence : la version traitée, ou l'original si la comparaison A/B est active."""
+        return sequence.audio_path if self.plays_original else sequence.effective_audio_path
 
     # --- Édition d'une séquence existante ---------------------------------------------------------
 
@@ -375,7 +395,7 @@ class SequenceListWidget(QWidget):
         self.select_sequence(sequence_id)
         sequence = self.get_sequence(sequence_id)
         if sequence is not None:
-            self.play_requested.emit(sequence.name, sequence.effective_audio_path, sequence.source_start)
+            self.play_requested.emit(sequence.name, self.playback_path(sequence), sequence.source_start)
 
     def _on_item_double_clicked(self, item) -> None:
         self.play_sequence(item.data(Qt.ItemDataRole.UserRole))
@@ -384,7 +404,7 @@ class SequenceListWidget(QWidget):
         sequence = self.current_sequence()
         if sequence is None:
             return
-        self.play_requested.emit(sequence.name, sequence.effective_audio_path, sequence.source_start)
+        self.play_requested.emit(sequence.name, self.playback_path(sequence), sequence.source_start)
 
     def _on_rename_clicked(self) -> None:
         sequence = self.current_sequence()

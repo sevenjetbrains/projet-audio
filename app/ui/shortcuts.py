@@ -39,6 +39,7 @@ SHORTCUTS_HELP: dict[str, list[tuple[str, str]]] = {
         ("Ctrl+L", "Lire la séquence"),
         ("F2", "Renommer"),
         ("F3", "Ajuster les bornes de la séquence (poignées sur la waveform)"),
+        ("Ctrl+B", "Comparer : écouter la version originale ou traitée (A/B)"),
         ("S", "Diviser la séquence à la tête de lecture"),
         ("Ctrl+D", "Dupliquer"),
         ("Delete", "Supprimer"),
