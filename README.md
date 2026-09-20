@@ -29,7 +29,7 @@ python -m app.main
 - Lecteur vidéo intégré : la vidéo source est visualisée pendant la lecture et le déplacement sur la forme d'onde, pour repérer visuellement les passages à extraire (repli automatique sur l'audio extrait si le format n'est pas décodable par Qt)
 - Séquences existantes affichées en zones colorées, avec leur nom, sur la forme d'onde ; un clic sur une zone sélectionne la séquence, un double-clic (zone ou ligne de la liste) la lit
 - Création et gestion de séquences (début/fin, réorganisation par glisser-déposer, sélection multiple : suppression, duplication et traitement en lot)
-- Découpage automatique en séquences selon les silences (menu Édition), annulable en une action
+- Découpage automatique en séquences selon les silences, avec aperçu des passages détectés (à cocher), annulable en une action
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)
 - Profils prédéfinis : Voix parlée, Interview, Podcast, Conférence, Enregistrement microphone, Voix faible
 - Thèmes sombre et clair (menu Affichage), choix mémorisé

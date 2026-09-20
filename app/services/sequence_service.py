@@ -155,13 +155,19 @@ def detect_speech_ranges(
     return [(start, end) for start, end in ranges if end - start >= params.min_segment]
 
 
-def create_sequences_from_silences(
-    project: Project, ffmpeg_service: FFmpegService, params: AutoSplitParams
+def create_sequences_from_ranges(
+    project: Project, ffmpeg_service: FFmpegService, ranges: list[tuple[float, float]]
 ) -> list[Sequence]:
-    """Découpe l'audio source en une séquence par segment non silencieux (non rattachées au projet)."""
-    ranges = detect_speech_ranges(project, ffmpeg_service, params)
+    """Découpe l'audio source selon les segments donnés (non rattachées au projet), nommées à la suite."""
     first_number = len(project.sequences) + 1
     return [
         create_sequence(project, ffmpeg_service, start, end, name=f"Séquence {first_number + index}")
         for index, (start, end) in enumerate(ranges)
     ]
+
+
+def create_sequences_from_silences(
+    project: Project, ffmpeg_service: FFmpegService, params: AutoSplitParams
+) -> list[Sequence]:
+    """Détecte les passages puis les découpe en séquences (non rattachées au projet)."""
+    return create_sequences_from_ranges(project, ffmpeg_service, detect_speech_ranges(project, ffmpeg_service, params))

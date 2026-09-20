@@ -34,7 +34,7 @@ from app.services.project_service import (
     save_project,
 )
 from app.services.recent_projects import add_recent_project, load_recent_projects
-from app.services.sequence_service import create_sequences_from_silences
+from app.services.sequence_service import create_sequences_from_ranges, detect_speech_ranges
 from app.ui.app_toolbar import AppToolBar
 from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.auto_split_dialog import AutoSplitDialog
@@ -46,6 +46,7 @@ from app.ui.selection_card import SelectionCard
 from app.ui.sequence_list import SequenceListWidget
 from app.ui.shortcuts import set_button_shortcut, shortcuts_help_html
 from app.ui.silence_split_card import SilenceSplitCard
+from app.ui.split_preview_dialog import SplitPreviewDialog
 from app.ui.transport_controls import TransportControls
 from app.ui.video_panel import VideoPanel
 from app.ui.video_player_panel import VideoPlayerPanel
@@ -719,28 +720,52 @@ class MainWindow(QMainWindow):
         self._run_auto_split(dialog.params())
 
     def _run_auto_split(self, params) -> None:
-        """Détection des silences et création des séquences, en tâche de fond."""
+        """Étape 1 : détection des passages en tâche de fond ; l'utilisateur les valide ensuite."""
         project = self._video_panel.project
         if project is None or not project.original_audio_path:
             QMessageBox.warning(self, "AudioCut Studio", "Importez une vidéo avant de découper automatiquement.")
             return
 
-        progress = QProgressDialog("Détection des silences et découpage…", None, 0, 0, self)
+        progress = QProgressDialog("Détection des silences…", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setCancelButton(None)
         progress.show()
 
         service = self._video_panel.ffmpeg_service
-        self._split_worker = FFmpegTaskWorker(lambda: create_sequences_from_silences(project, service, params))
-        self._split_worker.succeeded.connect(lambda sequences: self._on_auto_split_done(sequences, progress))
+        self._split_worker = FFmpegTaskWorker(lambda: detect_speech_ranges(project, service, params))
+        self._split_worker.succeeded.connect(lambda ranges: self._on_split_ranges_detected(ranges, progress))
         self._split_worker.failed.connect(lambda message: self._on_auto_split_failed(message, progress))
+        self._split_worker.start()
+
+    def _on_split_ranges_detected(self, ranges: list, progress: QProgressDialog) -> None:
+        """Étape 2 : aperçu et choix des passages, puis découpage des seuls passages retenus."""
+        progress.close()
+        self._silence_card.set_detected_count(len(ranges))
+        if not ranges:
+            QMessageBox.information(self, "AudioCut Studio", "Aucun passage détecté avec ces réglages.")
+            return
+
+        preview = SplitPreviewDialog(ranges, self)
+        if preview.exec() != SplitPreviewDialog.DialogCode.Accepted:
+            return
+        chosen = preview.selected_ranges()
+        if not chosen:
+            return
+
+        project = self._video_panel.project
+        service = self._video_panel.ffmpeg_service
+        cutting = QProgressDialog("Découpage des séquences…", None, 0, 0, self)
+        cutting.setWindowModality(Qt.WindowModality.WindowModal)
+        cutting.setCancelButton(None)
+        cutting.show()
+        self._split_worker = FFmpegTaskWorker(lambda: create_sequences_from_ranges(project, service, chosen))
+        self._split_worker.succeeded.connect(lambda sequences: self._on_auto_split_done(sequences, cutting))
+        self._split_worker.failed.connect(lambda message: self._on_auto_split_failed(message, cutting))
         self._split_worker.start()
 
     def _on_auto_split_done(self, sequences: list, progress: QProgressDialog) -> None:
         progress.close()
-        self._silence_card.set_detected_count(len(sequences))
         if not sequences:
-            QMessageBox.information(self, "AudioCut Studio", "Aucun passage détecté avec ces réglages.")
             return
         self._sequence_list.add_sequences(sequences)
         self.statusBar().showMessage(f"{len(sequences)} séquences créées automatiquement.", 5000)
