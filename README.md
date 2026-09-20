@@ -39,6 +39,7 @@ python -m app.main
 - Barre d'état : nombre de séquences et durée fusionnée estimée
 - Suppression des silences et fusion avec fondu enchaîné (crossfade)
 - Normalisation optionnelle du volume à l'export (loudness LUFS)
+- Option « ouvrir le dossier » à la fin de l'export
 - Export de la fusion (ou d'un fichier par séquence) en WAV, MP3, FLAC, M4A (AAC), OGG ou Opus
 - Sauvegarde/chargement de projet (.acsproject), annuler/rétablir (Ctrl+Z / Ctrl+Y) y compris pour les traitements audio, menu Projets récents, sauvegarde automatique toutes les 2 minutes avec récupération après plantage
 

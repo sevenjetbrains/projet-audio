@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -38,6 +40,7 @@ class ExportDialog(QDialog):
         self._project = project
         self._ffmpeg_service = ffmpeg_service
         self._worker: FFmpegTaskWorker | None = None
+        self._exported_folder = ""
 
         self._path_edit = QLineEdit()
         browse_button = QPushButton("Parcourir…")
@@ -68,6 +71,8 @@ class ExportDialog(QDialog):
         normalize_row.addWidget(self._normalize_cb)
         normalize_row.addWidget(self._lufs_spin)
 
+        self._open_folder_cb = QCheckBox("Ouvrir le dossier à la fin de l'export")
+
         self._export_button = QPushButton("Exporter")
         self._export_button.clicked.connect(self._on_export_clicked)
         self._export_button.setDefault(True)
@@ -89,6 +94,7 @@ class ExportDialog(QDialog):
         layout.addWidget(self._quality_combo)
         layout.addWidget(self._separate_cb)
         layout.addLayout(normalize_row)
+        layout.addWidget(self._open_folder_cb)
         layout.addWidget(self._export_button)
         layout.addWidget(self._progress_bar)
         layout.addWidget(self._status_label)
@@ -153,6 +159,7 @@ class ExportDialog(QDialog):
         from app.services.export_service import export_project, export_sequences_separately
 
         separate = self._separate_cb.isChecked()
+        self._exported_folder = out_path if separate else str(Path(out_path).parent)
         normalize_lufs = self._lufs_spin.value() if self._normalize_cb.isChecked() else None
         self._export_button.setEnabled(False)
         self._progress_bar.setValue(0)
@@ -178,6 +185,8 @@ class ExportDialog(QDialog):
         self._export_button.setEnabled(True)
         self._status_label.setText(f"Export terminé : {out_path}")
         QMessageBox.information(self, "AudioCut Studio", f"Export terminé avec succès :\n{out_path}")
+        if self._open_folder_cb.isChecked():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._exported_folder))
         self.accept()
 
     def closeEvent(self, event) -> None:

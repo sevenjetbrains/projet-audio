@@ -98,3 +98,61 @@ def test_export_dialog_keeps_user_typed_path_on_format_change(qtbot, project_wit
     dialog._format_combo.setCurrentText("FLAC")
 
     assert dialog._path_edit.text() == "C:/mon/choix.wav"
+
+
+def _run_export(qtbot, dialog):
+    dialog._on_export_clicked()
+    qtbot.waitUntil(lambda: "terminé" in dialog._status_label.text().lower(), timeout=10000)
+    qtbot.waitUntil(lambda: dialog._worker.isFinished(), timeout=3000)
+
+
+def test_export_opens_containing_folder_when_requested(qtbot, project_with_sequence, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    opened = []
+    monkeypatch.setattr("app.ui.export_dialog.QDesktopServices.openUrl", lambda url: opened.append(url.toLocalFile()) or True)
+    project, ffmpeg_service = project_with_sequence
+    dialog = ExportDialog(project, ffmpeg_service)
+    qtbot.addWidget(dialog)
+    dialog._path_edit.setText(str(tmp_path / "result.wav"))
+    dialog._open_folder_cb.setChecked(True)
+
+    _run_export(qtbot, dialog)
+
+    assert [Path(p) for p in opened] == [tmp_path]
+
+
+def test_export_does_not_open_folder_by_default(qtbot, project_with_sequence, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    opened = []
+    monkeypatch.setattr("app.ui.export_dialog.QDesktopServices.openUrl", lambda url: opened.append(url) or True)
+    project, ffmpeg_service = project_with_sequence
+    dialog = ExportDialog(project, ffmpeg_service)
+    qtbot.addWidget(dialog)
+    dialog._path_edit.setText(str(tmp_path / "result.wav"))
+
+    _run_export(qtbot, dialog)
+
+    assert opened == []
+
+
+def test_separate_export_opens_the_destination_folder_itself(qtbot, project_with_sequence, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    opened = []
+    monkeypatch.setattr("app.ui.export_dialog.QDesktopServices.openUrl", lambda url: opened.append(url.toLocalFile()) or True)
+    project, ffmpeg_service = project_with_sequence
+    dialog = ExportDialog(project, ffmpeg_service)
+    qtbot.addWidget(dialog)
+    dialog._separate_cb.setChecked(True)
+    target = tmp_path / "seqs"
+    dialog._path_edit.setText(str(target))
+    dialog._open_folder_cb.setChecked(True)
+
+    _run_export(qtbot, dialog)
+
+    assert [Path(p) for p in opened] == [target]
