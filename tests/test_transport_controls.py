@@ -41,7 +41,8 @@ def test_toggle_play_pause_updates_state(transport_controls, synthetic_wav_file,
         lambda: transport_controls._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
         timeout=3000,
     )
-    assert "Pause" in transport_controls._play_button.text()
+    # Le bouton est devenu une icône (maquette) : on vérifie l'état de lecture, pas le libellé.
+    assert transport_controls.is_playing
 
     transport_controls._toggle_play_pause()
     qtbot.waitUntil(
@@ -94,7 +95,7 @@ def test_load_and_play_starts_playback(transport_controls, synthetic_wav_file, q
         lambda: transport_controls._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
         timeout=5000,
     )
-    assert "Pause" in transport_controls._play_button.text()
+    assert transport_controls.is_playing
 
 
 def test_play_without_source_is_ignored(transport_controls):

@@ -1,9 +1,17 @@
-"""Thèmes de l'application (feuille de style + couleurs des widgets dessinés à la main) et préférence persistée."""
+"""Thèmes de l'application (feuille de style + couleurs des widgets dessinés à la main) et préférence persistée.
+
+Les deux thèmes partagent un unique gabarit QSS (`base.qss`) : seule la palette
+change, ce qui évite d'entretenir deux feuilles de style en parallèle.
+"""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from string import Template
+from types import MappingProxyType
+from typing import Mapping
 
+from app.config.palette import DARK_PALETTE, LIGHT_PALETTE
 from app.config.settings import PROJECT_ROOT
 
 STYLES_DIR = PROJECT_ROOT / "resources" / "styles"
@@ -19,11 +27,29 @@ class Theme:
     waveform_text: str
     waveform_color: str
     playhead_color: str
+    palette: Mapping[str, str] = field(default_factory=dict)
+
+    def color(self, token: str) -> str:
+        """Couleur d'un jeton de la palette (voir app/config/palette.py)."""
+        return self.palette[token]
+
+
+def _theme(name: str, palette: dict[str, str]) -> Theme:
+    """Thème dérivé d'une palette : les couleurs de la waveform en sont extraites."""
+    return Theme(
+        name=name,
+        stylesheet_file="base.qss",
+        waveform_background=palette["wave_bg"],
+        waveform_text=palette["wave_text"],
+        waveform_color=palette["wave_bar"],
+        playhead_color=palette["playhead"],
+        palette=MappingProxyType(palette),
+    )
 
 
 THEMES: dict[str, Theme] = {
-    "Sombre": Theme("Sombre", "dark_theme.qss", "#252526", "#999999", "#4fc3f7", "#ff5252"),
-    "Clair": Theme("Clair", "light_theme.qss", "#ffffff", "#666666", "#0277bd", "#d32f2f"),
+    "Sombre": _theme("Sombre", DARK_PALETTE),
+    "Clair": _theme("Clair", LIGHT_PALETTE),
 }
 
 
@@ -32,9 +58,14 @@ def get_theme(name: str) -> Theme:
 
 
 def load_stylesheet(theme: Theme) -> str:
-    """Contenu QSS du thème (chaîne vide si le fichier est absent : l'application reste utilisable)."""
+    """QSS du thème : gabarit `base.qss` dont chaque `$jeton` reçoit la couleur de la palette.
+
+    Chaîne vide si le fichier est absent : l'application reste utilisable, avec le style Qt par défaut.
+    """
     path = STYLES_DIR / theme.stylesheet_file
-    return path.read_text(encoding="utf-8") if path.exists() else ""
+    if not path.exists():
+        return ""
+    return Template(path.read_text(encoding="utf-8")).safe_substitute(theme.palette)
 
 
 def load_theme_preference(store_path: Path | None = None) -> str:

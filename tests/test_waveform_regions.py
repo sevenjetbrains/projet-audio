@@ -38,10 +38,16 @@ def test_regions_are_painted_only_where_sequences_are(waveform):
     assert _pixel(waveform, 250, 100) == empty_inside   # après la zone
 
 
-def test_adjacent_regions_get_different_colors(waveform):
-    waveform.set_sequence_regions([(0.0, 2.0, "A"), (2.0, 4.0, "B")])
+def test_adjacent_regions_are_separated_by_a_visible_gap(waveform):
+    """Toutes les séquences partagent la même teinte : c'est l'espace entre deux boîtes
+    voisines qui rend la frontière visible, et non une alternance de couleurs."""
+    waveform.set_sequence_regions([(0.0, 2.0, "A"), (2.0, 4.0, "B")])  # frontière à x = 80
 
-    assert _pixel(waveform, 40, 100) != _pixel(waveform, 120, 100)
+    inside_a = _pixel(waveform, 40, 100)
+    inside_b = _pixel(waveform, 120, 100)
+
+    assert inside_a == inside_b
+    assert _pixel(waveform, 80, 100) != inside_a
 
 
 def test_regions_follow_zoom_and_skip_offscreen_ones(waveform):

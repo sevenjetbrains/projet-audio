@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -18,12 +19,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.themes import Theme
 from app.models.project import Project
 from app.services import sequence_service
 from app.services.ffmpeg_service import FFmpegExecutionError, FFmpegService
+from app.ui.design import icon_button, label, section_label
+from app.ui.sequence_row_delegate import ROW_DATA_ROLE, SequenceRow, SequenceRowDelegate
 from app.ui.shortcuts import set_button_shortcut
 from app.ui.undo_commands import CallbackCommand
-from app.utils.time_utils import format_timecode
+from app.utils.time_utils import format_clock, format_timecode
+
+_COLUMN_HEADERS = ("NOM", "DÉBUT", "DURÉE", "STATUT")
+# Largeurs des colonnes de droite, alignées sur celles du delegate.
+_HEADER_STRETCH = (1, 0, 0, 0)
+_HEADER_WIDTHS = (0, 78, 66, 54)
 
 
 class SequenceListWidget(QWidget):
@@ -31,6 +40,7 @@ class SequenceListWidget(QWidget):
     sequences_changed = Signal()
     sequence_selected = Signal(str)
     selection_changed = Signal(list)
+    processing_requested = Signal()
 
     def __init__(self, ffmpeg_service: FFmpegService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -41,12 +51,23 @@ class SequenceListWidget(QWidget):
         self._list_widget = QListWidget()
         self._list_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self._list_widget.setMouseTracking(True)
+        self._list_widget.setUniformItemSizes(True)
+        self._delegate = SequenceRowDelegate(self._list_widget)
+        self._list_widget.setItemDelegate(self._delegate)
         self._list_widget.model().rowsMoved.connect(self._on_rows_moved)
         self._list_widget.currentItemChanged.connect(self._on_current_item_changed)
         self._list_widget.itemSelectionChanged.connect(self._on_selection_changed)
         self._list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
 
-        self._play_button = QPushButton("▶ Lire")
+        self._count_label = label("Séquences", "titleLabel")
+        self._empty_label = label(
+            "Aucune séquence.\nSélectionnez une plage sur la waveform,\npuis « Créer la séquence ».", "hintLabel"
+        )
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setWordWrap(True)
+
+        self._play_button = icon_button("▶")
         self._play_button.clicked.connect(self._on_play_clicked)
         set_button_shortcut(self._play_button, "Ctrl+L", "Lire la séquence")
         self._rename_button = QPushButton("Renommer")
@@ -55,18 +76,62 @@ class SequenceListWidget(QWidget):
         self._duplicate_button = QPushButton("Dupliquer")
         self._duplicate_button.clicked.connect(self._on_duplicate_clicked)
         set_button_shortcut(self._duplicate_button, "Ctrl+D")
-        self._delete_button = QPushButton("Supprimer")
+        self._delete_button = icon_button("🗑")
+        self._delete_button.setProperty("danger", "true")
         self._delete_button.clicked.connect(self._on_delete_clicked)
-        set_button_shortcut(self._delete_button, "Delete")
+        set_button_shortcut(self._delete_button, "Delete", "Supprimer")
 
-        buttons_layout = QHBoxLayout()
-        for button in (self._play_button, self._rename_button, self._duplicate_button, self._delete_button):
-            buttons_layout.addWidget(button)
+        self._processing_button = QPushButton("Appliquer un traitement…")
+        self._processing_button.clicked.connect(self.processing_requested.emit)
+        self._processing_button.setToolTip("Ouvrir le panneau de traitement audio pour la sélection")
+
+        self.setLayout(self._build_layout())
+        self._refresh()
+
+    # --- Construction de l'interface --------------------------------------
+
+    def _build_layout(self) -> QVBoxLayout:
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.addWidget(self._count_label)
+        header.addStretch(1)
+        header.addWidget(label("glisser pour réorganiser", "hintLabel"))
+
+        self._columns_header = QWidget()
+        columns = QHBoxLayout(self._columns_header)
+        columns.setContentsMargins(13, 0, 10, 0)
+        columns.setSpacing(0)
+        for title, stretch, width in zip(_COLUMN_HEADERS, _HEADER_STRETCH, _HEADER_WIDTHS):
+            column = section_label(title)
+            column.setObjectName("sequenceTableHeader")
+            if width:
+                column.setFixedWidth(width)
+            columns.addWidget(column, stretch)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        buttons.addWidget(self._play_button)
+        buttons.addWidget(self._rename_button, 1)
+        buttons.addWidget(self._duplicate_button, 1)
+        buttons.addWidget(self._delete_button)
 
         layout = QVBoxLayout()
-        layout.addWidget(self._list_widget)
-        layout.addLayout(buttons_layout)
-        self.setLayout(layout)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+        layout.addLayout(header)
+        layout.addWidget(self._columns_header)
+        layout.addWidget(self._list_widget, 1)
+        layout.addWidget(self._empty_label, 1)
+        layout.addLayout(buttons)
+        layout.addWidget(self._processing_button)
+        return layout
+
+    def set_theme(self, theme: Theme) -> None:
+        """Répercute le thème sur le dessin des lignes (le reste passe par la feuille de style)."""
+        self._delegate.set_theme(theme)
+        self._list_widget.viewport().update()
+
+    # --- API publique ------------------------------------------------------
 
     @property
     def undo_stack(self) -> QUndoStack:
@@ -99,7 +164,7 @@ class SequenceListWidget(QWidget):
         """Rattache des séquences déjà découpées au projet, en une seule action annulable."""
         if self._project is None or not sequences:
             return
-        label = f"« {sequences[0].name} »" if len(sequences) == 1 else f"{len(sequences)} séquences"
+        label_text = f"« {sequences[0].name} »" if len(sequences) == 1 else f"{len(sequences)} séquences"
 
         def redo():
             for sequence in sequences:
@@ -109,7 +174,7 @@ class SequenceListWidget(QWidget):
             for sequence in sequences:
                 sequence_service.remove_sequence_from_list(self._project, sequence.id)
 
-        self._push_command(f"Créer {label}", redo_fn=redo, undo_fn=undo)
+        self._push_command(f"Créer {label_text}", redo_fn=redo, undo_fn=undo)
 
     def select_sequence(self, sequence_id: str) -> None:
         """Sélectionne (seule) la séquence d'identifiant donné et la rend visible ; sans effet si inconnue."""
@@ -122,6 +187,8 @@ class SequenceListWidget(QWidget):
                 self._list_widget.scrollToItem(item)
                 return
 
+    # --- Affichage ---------------------------------------------------------
+
     def _refresh(self) -> None:
         previous_id = self._current_sequence_id()
 
@@ -129,18 +196,49 @@ class SequenceListWidget(QWidget):
         self._list_widget.clear()
         if self._project is not None:
             for sequence in sorted(self._project.sequences, key=lambda seq: seq.order):
-                status = " [traité]" if sequence.processed_audio_path else ""
-                label = (
-                    f"{sequence.order + 1}. {sequence.name}   "
-                    f"{format_timecode(sequence.source_start)} → {format_timecode(sequence.source_end)}   "
-                    f"({format_timecode(sequence.duration)}){status}"
-                )
-                item = QListWidgetItem(label)
+                item = QListWidgetItem(self._fallback_text(sequence))
                 item.setData(Qt.ItemDataRole.UserRole, sequence.id)
+                item.setData(ROW_DATA_ROLE, self._row_data(sequence))
+                item.setToolTip(self._fallback_text(sequence))
                 self._list_widget.addItem(item)
                 if sequence.id == previous_id:
                     self._list_widget.setCurrentItem(item)
         self._list_widget.blockSignals(False)
+        self._update_header()
+
+    @staticmethod
+    def _row_data(sequence) -> SequenceRow:
+        return SequenceRow(
+            number=sequence.order + 1,
+            name=sequence.name,
+            start=format_clock(sequence.source_start, decimals=3),
+            duration=format_clock(sequence.duration, decimals=2),
+            processed=bool(sequence.processed_audio_path),
+        )
+
+    @staticmethod
+    def _fallback_text(sequence) -> str:
+        """Texte brut de la ligne : infobulle, recherche au clavier et accessibilité."""
+        status = " [traité]" if sequence.processed_audio_path else ""
+        return (
+            f"{sequence.order + 1}. {sequence.name}   "
+            f"{format_timecode(sequence.source_start)} → {format_timecode(sequence.source_end)}   "
+            f"({format_timecode(sequence.duration)}){status}"
+        )
+
+    def _update_header(self) -> None:
+        """Compteur « Séquences (8) » et message d'accueil quand la liste est vide."""
+        count = self._list_widget.count()
+        self._count_label.setText(f"Séquences ({count})" if count else "Séquences")
+        self._empty_label.setVisible(count == 0)
+        self._list_widget.setVisible(count > 0)
+        self._columns_header.setVisible(count > 0)
+
+    def refresh(self) -> None:
+        """Rafraîchit l'affichage (ex. après un traitement audio appliqué en externe)."""
+        self._refresh()
+
+    # --- Undo / redo -------------------------------------------------------
 
     def _push_command(self, description: str, redo_fn, undo_fn) -> None:
         def wrapped_redo():
@@ -154,6 +252,8 @@ class SequenceListWidget(QWidget):
             self.sequences_changed.emit()
 
         self._undo_stack.push(CallbackCommand(description, wrapped_redo, wrapped_undo))
+
+    # --- Accès aux séquences ----------------------------------------------
 
     def _current_sequence_id(self) -> str | None:
         item = self._list_widget.currentItem()
@@ -182,14 +282,12 @@ class SequenceListWidget(QWidget):
     def _on_selection_changed(self) -> None:
         self.selection_changed.emit(self.selected_sequences())
 
-    def refresh(self) -> None:
-        """Rafraîchit l'affichage (ex. après un traitement audio appliqué en externe)."""
-        self._refresh()
-
     def _on_current_item_changed(self, current, _previous) -> None:
         if current is None:
             return
         self.sequence_selected.emit(current.data(Qt.ItemDataRole.UserRole))
+
+    # --- Actions -----------------------------------------------------------
 
     def play_sequence(self, sequence_id: str) -> None:
         """Sélectionne la séquence puis demande sa lecture (double-clic, bouton Lire)."""
@@ -231,7 +329,7 @@ class SequenceListWidget(QWidget):
             return
         duplicates = [sequence_service.create_duplicate(self._project, seq.id) for seq in originals]
 
-        label = f"« {duplicates[0].name} »" if len(duplicates) == 1 else f"{len(duplicates)} séquences"
+        label_text = f"« {duplicates[0].name} »" if len(duplicates) == 1 else f"{len(duplicates)} séquences"
 
         def redo():
             for duplicate in duplicates:
@@ -241,7 +339,7 @@ class SequenceListWidget(QWidget):
             for duplicate in duplicates:
                 sequence_service.remove_sequence_from_list(self._project, duplicate.id)
 
-        self._push_command(f"Dupliquer {label}", redo_fn=redo, undo_fn=undo)
+        self._push_command(f"Dupliquer {label_text}", redo_fn=redo, undo_fn=undo)
 
     def _on_delete_clicked(self) -> None:
         if self._project is None:
@@ -252,7 +350,7 @@ class SequenceListWidget(QWidget):
         # Position d'origine de chaque séquence, pour la restaurer exactement à l'annulation.
         positions = [(seq, self._project.sequences.index(seq)) for seq in targets]
 
-        label = f"« {targets[0].name} »" if len(targets) == 1 else f"{len(targets)} séquences"
+        label_text = f"« {targets[0].name} »" if len(targets) == 1 else f"{len(targets)} séquences"
 
         def redo():
             for seq, _index in positions:
@@ -262,7 +360,7 @@ class SequenceListWidget(QWidget):
             for seq, index in sorted(positions, key=lambda pair: pair[1]):
                 sequence_service.insert_sequence(self._project, seq, index)
 
-        self._push_command(f"Supprimer {label}", redo_fn=redo, undo_fn=undo)
+        self._push_command(f"Supprimer {label_text}", redo_fn=redo, undo_fn=undo)
 
     def _on_rows_moved(self, *_args) -> None:
         if self._project is None:
