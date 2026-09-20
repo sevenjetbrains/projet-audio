@@ -9,6 +9,7 @@ Les opérations sont scindées en deux étapes pour permettre l'undo/redo (§17/
 les appelants qui n'ont pas besoin d'annulation (chargement de projet, tests).
 """
 
+import copy
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from uuid import uuid4
 from app.audio.silence_detection import compute_keep_ranges
 from app.models.project import Project
 from app.models.sequence import Sequence
+from app.services import audio_processor
 from app.services.ffmpeg_service import FFmpegService
 
 
@@ -118,6 +120,72 @@ def reorder_sequences(project: Project, ordered_ids: list[str]) -> None:
         raise ValueError("ordered_ids must contain exactly the current sequence ids")
 
     project.sequences = [by_id[seq_id] for seq_id in ordered_ids]
+    _reindex(project)
+
+
+
+# --- Édition d'une séquence existante : nouvelles bornes, division ----------------------------------------
+
+MIN_SEQUENCE_SECONDS = 0.05  # en dessous, une séquence n'aurait plus de contenu audible
+
+
+def _derive(project: Project, ffmpeg_service: FFmpegService, model: Sequence, start: float, end: float, name: str) -> Sequence:
+    """Nouvelle séquence découpée dans la source, qui garde les réglages de traitement de `model` (et les réapplique)."""
+    derived = create_sequence(project, ffmpeg_service, start, end, name=name)
+    derived.audio_settings = copy.deepcopy(model.audio_settings)
+    # Sans cela, un traitement déjà appliqué (bruit, normalisation, silences…) disparaîtrait en silence à la fusion.
+    audio_processor.process_sequence(project, derived, ffmpeg_service)
+    return derived
+
+
+def _check_bounds(project: Project, start: float, end: float) -> None:
+    if end - start < MIN_SEQUENCE_SECONDS:
+        raise ValueError(f"Une séquence doit durer au moins {MIN_SEQUENCE_SECONDS * 1000:.0f} ms.")
+    if start < 0:
+        raise ValueError("Le début de la séquence ne peut pas être négatif.")
+    duration = project.source_video.duration if project.source_video is not None else None
+    if duration is not None and end > duration + 0.01:
+        raise ValueError("La fin de la séquence dépasse la durée de la vidéo.")
+
+
+def retime_sequence(
+    project: Project, ffmpeg_service: FFmpegService, sequence_id: str, start: float, end: float
+) -> tuple[Sequence, Sequence]:
+    """Prépare une version de la séquence aux nouvelles bornes. Retourne (ancienne, nouvelle), sans rien modifier.
+
+    La nouvelle garde l'identifiant, le nom, la place et les réglages de traitement ; son audio est redécoupé dans
+    la source. L'appelant l'échange avec l'ancienne par `replace_sequences` (annulable : les deux fichiers subsistent).
+    """
+    old = _find(project, sequence_id)
+    _check_bounds(project, start, end)
+    if abs(start - old.source_start) < 1e-6 and abs(end - old.source_end) < 1e-6:
+        raise ValueError("Les bornes de la séquence n'ont pas changé.")
+    new = _derive(project, ffmpeg_service, old, start, end, old.name)
+    new.id = old.id
+    new.order = old.order
+    return old, new
+
+
+def split_sequence(
+    project: Project, ffmpeg_service: FFmpegService, sequence_id: str, at: float
+) -> tuple[Sequence, list[Sequence]]:
+    """Prépare la division d'une séquence en deux au temps `at` (temps de la source). Retourne (ancienne, [a, b])."""
+    old = _find(project, sequence_id)
+    if not (old.source_start + MIN_SEQUENCE_SECONDS <= at <= old.source_end - MIN_SEQUENCE_SECONDS):
+        raise ValueError("La tête de lecture doit se trouver à l'intérieur de la séquence à diviser.")
+    first = _derive(project, ffmpeg_service, old, old.source_start, at, f"{old.name} (1)")
+    second = _derive(project, ffmpeg_service, old, at, old.source_end, f"{old.name} (2)")
+    return old, [first, second]
+
+
+def replace_sequences(project: Project, remove_ids: list[str], add: list[Sequence]) -> None:
+    """Remplace des séquences par d'autres, à la place de la première retirée (réversible en échangeant les rôles)."""
+    indexes = [project.sequences.index(_find(project, sequence_id)) for sequence_id in remove_ids]
+    position = min(indexes)
+    for sequence_id in remove_ids:
+        project.sequences.remove(_find(project, sequence_id))
+    for offset, sequence in enumerate(add):
+        project.sequences.insert(position + offset, sequence)
     _reindex(project)
 
 

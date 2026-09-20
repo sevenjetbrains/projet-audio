@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -40,6 +41,8 @@ class SequenceListWidget(QWidget):
     sequences_changed = Signal()
     sequence_selected = Signal(str)
     selection_changed = Signal(list)
+    edit_bounds_requested = Signal(str)
+    split_requested = Signal(str)
     processing_requested = Signal()
 
     def __init__(self, ffmpeg_service: FFmpegService, parent: QWidget | None = None) -> None:
@@ -76,6 +79,12 @@ class SequenceListWidget(QWidget):
         self._duplicate_button = QPushButton("Dupliquer")
         self._duplicate_button.clicked.connect(self._on_duplicate_clicked)
         set_button_shortcut(self._duplicate_button, "Ctrl+D")
+        self._bounds_button = QPushButton("Bornes")
+        self._bounds_button.clicked.connect(self._on_bounds_clicked)
+        set_button_shortcut(self._bounds_button, "F3", "Ajuster les bornes de la séquence dans la sélection")
+        self._split_button = QPushButton("Diviser")
+        self._split_button.clicked.connect(self._on_split_clicked)
+        set_button_shortcut(self._split_button, "S", "Diviser la séquence à la tête de lecture")
         self._delete_button = icon_button("trash")
         self._delete_button.setProperty("danger", "true")
         self._delete_button.clicked.connect(self._on_delete_clicked)
@@ -115,6 +124,11 @@ class SequenceListWidget(QWidget):
         buttons.addWidget(self._duplicate_button, 1)
         buttons.addWidget(self._delete_button)
 
+        edit_buttons = QHBoxLayout()
+        edit_buttons.setSpacing(8)
+        edit_buttons.addWidget(self._bounds_button, 1)
+        edit_buttons.addWidget(self._split_button, 1)
+
         layout = QVBoxLayout()
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
@@ -123,6 +137,7 @@ class SequenceListWidget(QWidget):
         layout.addWidget(self._list_widget, 1)
         layout.addWidget(self._empty_label, 1)
         layout.addLayout(buttons)
+        layout.addLayout(edit_buttons)
         layout.addWidget(self._processing_button)
         return layout
 
@@ -159,6 +174,72 @@ class SequenceListWidget(QWidget):
             redo_fn=lambda: sequence_service.insert_sequence(self._project, sequence),
             undo_fn=lambda: sequence_service.remove_sequence_from_list(self._project, sequence.id),
         )
+
+    # --- Édition d'une séquence existante ---------------------------------------------------------
+
+    def retime_sequence(self, sequence_id: str, start: float, end: float) -> bool:
+        """Applique de nouvelles bornes à une séquence (annulable). Retourne False si l'opération a échoué."""
+        if self._project is None:
+            return False
+        try:
+            old, new = self._with_wait_cursor(
+                lambda: sequence_service.retime_sequence(self._project, self._ffmpeg_service, sequence_id, start, end)
+            )
+        except (ValueError, KeyError) as exc:
+            QMessageBox.warning(self, "AudioCut Studio", str(exc))
+            return False
+        except FFmpegExecutionError:
+            QMessageBox.critical(self, "AudioCut Studio — Erreur", "Erreur lors du redécoupage de la séquence.")
+            return False
+
+        self._push_command(
+            f"Ajuster les bornes de « {old.name} »",
+            redo_fn=lambda: sequence_service.replace_sequences(self._project, [old.id], [new]),
+            undo_fn=lambda: sequence_service.replace_sequences(self._project, [new.id], [old]),
+        )
+        return True
+
+    def split_sequence_at(self, sequence_id: str, at: float) -> bool:
+        """Divise une séquence en deux au temps `at` de la source (annulable). Retourne False en cas d'échec."""
+        if self._project is None:
+            return False
+        try:
+            old, parts = self._with_wait_cursor(
+                lambda: sequence_service.split_sequence(self._project, self._ffmpeg_service, sequence_id, at)
+            )
+        except (ValueError, KeyError) as exc:
+            QMessageBox.warning(self, "AudioCut Studio", str(exc))
+            return False
+        except FFmpegExecutionError:
+            QMessageBox.critical(self, "AudioCut Studio — Erreur", "Erreur lors de la division de la séquence.")
+            return False
+
+        part_ids = [part.id for part in parts]
+        self._push_command(
+            f"Diviser « {old.name} »",
+            redo_fn=lambda: sequence_service.replace_sequences(self._project, [old.id], parts),
+            undo_fn=lambda: sequence_service.replace_sequences(self._project, part_ids, [old]),
+        )
+        return True
+
+    @staticmethod
+    def _with_wait_cursor(task):
+        """Exécute une tâche courte (découpage FFmpeg) en affichant le curseur d'attente."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            return task()
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_bounds_clicked(self) -> None:
+        sequence_id = self._current_sequence_id()
+        if sequence_id is not None:
+            self.edit_bounds_requested.emit(sequence_id)
+
+    def _on_split_clicked(self) -> None:
+        sequence_id = self._current_sequence_id()
+        if sequence_id is not None:
+            self.split_requested.emit(sequence_id)
 
     def add_sequences(self, sequences: list) -> None:
         """Rattache des séquences déjà découpées au projet, en une seule action annulable."""

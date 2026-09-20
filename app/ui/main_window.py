@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
         self._save_state_hint = label("Aucune modification en attente.", "hintLabel")
 
         self._playback_offset: float | None = 0.0
+        self._editing_sequence_id: str | None = None
         self._preview_proxy_path = ""
         self._proxy_worker = None
         # La source est lue depuis le fichier vidéo (image + son synchronisés) ; si Qt ne sait pas
@@ -485,6 +486,9 @@ class MainWindow(QMainWindow):
         self._selection_card.mark_end_requested.connect(self._mark_selection_end)
         self._selection_card.create_requested.connect(self._on_create_sequence_clicked)
         self._selection_card.listen_requested.connect(self._listen_to_selection)
+        self._selection_card.edit_cancelled.connect(self._stop_bounds_edit)
+        self._sequence_list.edit_bounds_requested.connect(self._start_bounds_edit)
+        self._sequence_list.split_requested.connect(self._split_sequence_at_playhead)
         self._selection_card.loop_toggled.connect(self._transport_controls.set_loop)
         self._silence_card.split_requested.connect(self._run_auto_split)
 
@@ -552,6 +556,7 @@ class MainWindow(QMainWindow):
         self._waveform_widget.load(wav_path, duration)
         self._waveform_overview.load(wav_path, duration)
         self._video_playback_failed = False
+        self._stop_bounds_edit()
         self._preview_proxy_path = ""
         self._load_source_playback()
         self._playback_offset = 0.0
@@ -683,7 +688,46 @@ class MainWindow(QMainWindow):
         if end <= start:
             QMessageBox.warning(self, "AudioCut Studio", "Sélectionnez une plage valide avant de créer une séquence.")
             return
+        if self._editing_sequence_id is not None:
+            self._apply_bounds_edit(start, end)
+            return
         self._sequence_list.add_sequence_from_selection(start, end)
+
+    # --- Ajustement des bornes et division d'une séquence existante ------------------------------------
+
+    def _start_bounds_edit(self, sequence_id: str) -> None:
+        """Charge les bornes d'une séquence dans la sélection : on les règle avec les poignées, puis on valide."""
+        sequence = self._sequence_list.get_sequence(sequence_id)
+        if sequence is None:
+            return
+        self._editing_sequence_id = sequence_id
+        self._selection_card.set_editing(sequence.name)
+        self._selection_start_spin.setValue(sequence.source_start)
+        self._selection_end_spin.setValue(sequence.source_end)
+        self._waveform_widget.ensure_range_visible(sequence.source_start, sequence.source_end)
+        self._ensure_source_playback()
+        self._transport_controls.set_position_seconds(sequence.source_start)
+        self.statusBar().showMessage(
+            f"Ajustez les bornes de « {sequence.name} » (poignées, champs ou I / O), puis validez avec Entrée.", 8000
+        )
+
+    def _apply_bounds_edit(self, start: float, end: float) -> None:
+        sequence_id = self._editing_sequence_id
+        if sequence_id is None:
+            return
+        if self._sequence_list.retime_sequence(sequence_id, start, end):
+            self._stop_bounds_edit()
+            self.statusBar().showMessage("Bornes de la séquence mises à jour.", 5000)
+
+    def _stop_bounds_edit(self) -> None:
+        self._editing_sequence_id = None
+        self._selection_card.set_editing(None)
+
+    def _split_sequence_at_playhead(self, sequence_id: str) -> None:
+        """Divise la séquence à la position de lecture (sur la timeline de la source)."""
+        at = self._waveform_widget.playhead
+        if self._sequence_list.split_sequence_at(sequence_id, at):
+            self.statusBar().showMessage(f"Séquence divisée à {format_timecode_fr(at)}.", 5000)
 
     def _ensure_source_playback(self) -> None:
         """Reprend la lecture de la source si une séquence ou le résultat fusionné était chargé."""
@@ -757,6 +801,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_sequences_changed(self) -> None:
+        if self._editing_sequence_id is not None and self._sequence_list.get_sequence(self._editing_sequence_id) is None:
+            self._stop_bounds_edit()  # la séquence en cours d'ajustement a été supprimée
         self._update_waveform_regions()
         self._update_project_summary()
         self._mark_dirty()

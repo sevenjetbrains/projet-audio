@@ -156,6 +156,19 @@ class WaveformWidget(QWidget):
             return 1.0
         return self._duration / span
 
+    @property
+    def playhead(self) -> float:
+        return self._playhead
+
+    def ensure_range_visible(self, start: float, end: float) -> None:
+        """Recadre la vue pour montrer [start, end] ; sans effet si elle est déjà entièrement visible."""
+        if self._duration <= 0 or (start >= self._view_start and end <= self._view_end):
+            return
+        span = max(self._view_end - self._view_start, (end - start) * 1.5)
+        span = min(span, self._duration)
+        new_start = min(max((start + end) / 2 - span / 2, 0.0), self._duration - span)
+        self.set_view_range(new_start, new_start + span)
+
     def set_view_range(self, start: float, end: float) -> None:
         """Cadre la vue sur [start, end], borné à l'audio et à la portée minimale."""
         if self._duration <= 0:

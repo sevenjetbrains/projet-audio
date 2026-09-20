@@ -18,10 +18,12 @@ class SelectionCard(QWidget):
     create_requested = Signal()
     listen_requested = Signal()
     loop_toggled = Signal(bool)
+    edit_cancelled = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._editing_name: str | None = None
         self.start_spin = TimecodeSpinBox()
         self.end_spin = TimecodeSpinBox()
         self._duration_label = label(f"durée {format_clock(0.0)}", "mutedLabel")
@@ -42,6 +44,13 @@ class SelectionCard(QWidget):
         self.create_button.clicked.connect(self.create_requested.emit)
         # La touche Entrée est câblée par la fenêtre (deux QShortcut : Return et Enter du pavé).
         self.create_button.setToolTip("Créer une séquence depuis la sélection (Entrée)")
+
+        self.cancel_edit_button = QPushButton("Annuler")
+        self.cancel_edit_button.setToolTip("Abandonner l'ajustement des bornes")
+        self.cancel_edit_button.clicked.connect(self.edit_cancelled.emit)
+        self.cancel_edit_button.hide()
+        self._editing_label = label("", "hintLabel")
+        self._editing_label.hide()
 
         self.setLayout(self._build_layout())
         for spin in (self.start_spin, self.end_spin):
@@ -69,19 +78,21 @@ class SelectionCard(QWidget):
         fields.addWidget(self._duration_label)
         fields.addStretch(1)
 
-        hint = label(_HINT, "hintLabel")
-        hint.setWordWrap(True)
-        hint.setMinimumWidth(1)
+        self._hint_label = label(_HINT, "hintLabel")
+        self._hint_label.setWordWrap(True)
+        self._hint_label.setMinimumWidth(1)
 
         actions = QHBoxLayout()
         actions.setSpacing(8)
-        actions.addWidget(hint, 1)
+        actions.addWidget(self._hint_label, 1)
         actions.addWidget(self.listen_button)
         actions.addWidget(self.loop_button)
         actions.addWidget(self._mark_start_button)
         actions.addWidget(self._mark_end_button)
+        actions.addWidget(self.cancel_edit_button)
         actions.addWidget(self.create_button)
 
+        frame_layout.addWidget(self._editing_label)
         frame_layout.addLayout(fields)
         frame_layout.addLayout(actions)
 
@@ -89,6 +100,24 @@ class SelectionCard(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(frame)
         return layout
+
+    @property
+    def is_editing(self) -> bool:
+        return self._editing_name is not None
+
+    def set_editing(self, name: str | None) -> None:
+        """Mode « ajustement des bornes » d'une séquence existante (None pour revenir à la création)."""
+        self._editing_name = name
+        editing = name is not None
+        self.create_button.setText(f"Mettre à jour « {name} »" if editing else "Créer la séquence")
+        self.create_button.setToolTip(
+            "Appliquer ces bornes à la séquence (Entrée)" if editing else "Créer une séquence depuis la sélection (Entrée)"
+        )
+        self.cancel_edit_button.setVisible(editing)
+        self._editing_label.setVisible(editing)
+        # Les boutons prennent alors toute la largeur : l'aide courte serait écrasée en une colonne de caractères.
+        self._hint_label.setVisible(not editing)
+        self._editing_label.setText(f"Ajustement des bornes de « {name} » : tirez les poignées sur la waveform." if editing else "")
 
     def refresh_duration(self) -> None:
         """Met à jour l'affichage « durée … » (à appeler si les champs changent signaux bloqués)."""
