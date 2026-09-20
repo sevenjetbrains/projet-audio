@@ -25,6 +25,7 @@ SHORTCUTS_HELP: dict[str, list[tuple[str, str]]] = {
     "Lecture et sélection": [
         ("Space", "Lecture / pause"),
         ("Shift+Space", "Écouter uniquement la sélection"),
+        ("L", "Activer / désactiver la boucle de la sélection"),
         ("F", "Plein écran de la vidéo (Échap ou F pour quitter)"),
         ("F11", "Plein écran de la vidéo"),
         ("Ctrl+Space", "Arrêter la lecture"),

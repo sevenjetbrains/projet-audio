@@ -289,3 +289,185 @@ def test_keys_leave_fullscreen(qtbot, key):
     QTest.keyClick(preview._fullscreen_window, key)
 
     assert not preview.is_fullscreen
+
+
+# --- boucle -----------------------------------------------------------------------------------------------
+
+
+def test_loop_restarts_the_range_instead_of_stopping(qtbot, loaded):
+    loops, finished = [], []
+    loaded.range_looped.connect(lambda: loops.append(True))
+    loaded.range_finished.connect(lambda: finished.append(True))
+    loaded.set_loop(True)
+
+    loaded.play_range(0.2, 0.5)
+    qtbot.waitUntil(lambda: len(loops) >= 3, timeout=6000)
+
+    assert loaded.is_playing  # toujours en lecture après plusieurs tours
+    assert loaded.is_playing_range
+    assert finished == []
+
+
+def test_loop_keeps_the_position_inside_the_range(qtbot, loaded):
+    loaded.set_loop(True)
+    loaded.play_range(0.2, 0.5)
+    positions = []
+    loaded.position_changed.connect(positions.append)
+
+    qtbot.wait(1500)
+
+    assert positions
+    # La position ne dépasse la fin que de la marge du contrôle (15 ms) + une éventuelle position périmée du lecteur.
+    late = [p for p in positions if p > 0.5 + 0.15]
+    assert late == []
+    assert min(positions) >= 0.15
+
+
+def test_turning_the_loop_off_lets_the_range_finish(qtbot, loaded):
+    finished = []
+    loaded.range_finished.connect(lambda: finished.append(True))
+    loaded.set_loop(True)
+    loaded.play_range(0.2, 0.6)
+    qtbot.wait(700)  # au moins un tour
+    assert not finished
+
+    loaded.set_loop(False)
+    qtbot.waitUntil(lambda: bool(finished), timeout=4000)
+
+    assert not loaded.is_playing
+    assert not loaded.is_playing_range
+
+
+def test_a_range_too_short_to_loop_plays_once(qtbot, loaded):
+    finished, loops = [], []
+    loaded.range_finished.connect(lambda: finished.append(True))
+    loaded.range_looped.connect(lambda: loops.append(True))
+    loaded.set_loop(True)
+
+    loaded.play_range(0.5, 0.55)  # 50 ms : une boucle ne serait qu'un grésillement
+    qtbot.waitUntil(lambda: bool(finished), timeout=4000)
+
+    assert loops == []
+    assert not loaded.is_playing
+
+
+def test_user_seek_ends_the_loop(loaded):
+    loaded.set_loop(True)
+    loaded.play_range(0.2, 0.5)
+
+    loaded.set_position_seconds(1.0)
+
+    assert not loaded.is_playing_range  # l'utilisateur reprend la main : la lecture ne reboucle plus
+
+
+def test_loop_flag_is_kept_between_ranges(loaded):
+    loaded.set_loop(True)
+    loaded.play_range(0.2, 0.4)
+    loaded.stop()
+
+    assert loaded.is_looping  # le bouton Boucle reste enfoncé d'une écoute à l'autre
+
+
+# --- mise à jour des bornes pendant l'écoute ----------------------------------------------------------------
+
+
+def test_update_range_changes_the_end_without_interrupting(qtbot, loaded):
+    loops = []
+    loaded.range_looped.connect(lambda: loops.append(True))
+    loaded.set_loop(True)
+    loaded.play_range(0.2, 1.8)  # boucle longue : aucun tour pendant l'attente ci-dessous
+    qtbot.wait(300)
+    assert loops == []
+
+    loaded.update_range(0.2, 0.5)  # l'utilisateur raccourcit la fin pendant l'écoute
+    qtbot.waitUntil(lambda: len(loops) >= 1, timeout=4000)
+
+    assert loaded.is_playing
+    assert loaded._range_end_ms == 500
+
+
+def test_update_range_moves_playback_back_inside_the_new_range(loaded, monkeypatch):
+    calls = []
+    monkeypatch.setattr(loaded._player, "setPosition", lambda ms: calls.append(ms))
+    monkeypatch.setattr(loaded._player, "position", lambda: 1500)
+    loaded._range_start_ms, loaded._range_end_ms = 200, 1800
+
+    loaded.update_range(0.3, 0.9)  # la lecture (1,5 s) est maintenant hors de la plage
+
+    assert calls == [300]
+
+
+def test_update_range_leaves_playback_alone_when_still_inside(loaded, monkeypatch):
+    calls = []
+    monkeypatch.setattr(loaded._player, "setPosition", lambda ms: calls.append(ms))
+    monkeypatch.setattr(loaded._player, "position", lambda: 600)
+    loaded._range_start_ms, loaded._range_end_ms = 200, 1800
+
+    loaded.update_range(0.3, 0.9)
+
+    assert calls == []
+    assert (loaded._range_start_ms, loaded._range_end_ms) == (300, 900)
+
+
+def test_update_range_ignores_calls_when_no_range_is_playing(loaded):
+    loaded.update_range(0.5, 1.0)
+
+    assert not loaded.is_playing_range  # une sélection modifiée hors écoute ne doit rien démarrer
+
+
+def test_update_range_ignores_an_empty_range(loaded):
+    loaded.play_range(0.2, 0.9)
+
+    loaded.update_range(0.8, 0.8)
+
+    assert loaded._range_end_ms == 900
+
+
+# --- bouton et raccourci ----------------------------------------------------------------------------------
+
+
+def test_loop_button_is_a_toggle_and_emits_its_state(qtbot, card):
+    states = []
+    card.loop_toggled.connect(states.append)
+
+    assert card.loop_button.isCheckable() and not card.loop_button.isChecked()
+    card.loop_button.click()
+    card.loop_button.click()
+
+    assert states == [True, False]
+
+
+def test_loop_button_drives_the_transport(window, monkeypatch):
+    window._selection_card.loop_button.setChecked(True)
+    assert window._transport_controls.is_looping
+
+    window._selection_card.loop_button.setChecked(False)
+    assert not window._transport_controls.is_looping
+
+
+def test_l_shortcut_toggles_the_loop(window):
+    shortcut = next(s for s in window.findChildren(QShortcut) if s.key().toString() == "L")
+
+    shortcut.activated.emit()
+    assert window._selection_card.loop_button.isChecked()
+    assert window._transport_controls.is_looping
+
+    shortcut.activated.emit()
+    assert not window._selection_card.loop_button.isChecked()
+
+
+def test_editing_the_bounds_while_listening_updates_the_loop(window, monkeypatch):
+    updates = []
+    monkeypatch.setattr(window._transport_controls, "update_range", lambda s, e: updates.append((s, e)))
+    window._selection_card.set_range(30.0)
+
+    window._selection_start_spin.setValue(3.0)
+    window._selection_end_spin.setValue(7.5)
+
+    assert updates[-1] == (3.0, 7.5)
+
+
+def test_loop_shortcut_is_documented(window):
+    from app.ui.shortcuts import SHORTCUTS_HELP
+
+    assert "L" in {key for entries in SHORTCUTS_HELP.values() for key, _ in entries}

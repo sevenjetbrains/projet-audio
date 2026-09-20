@@ -17,6 +17,7 @@ class SelectionCard(QWidget):
     mark_end_requested = Signal()
     create_requested = Signal()
     listen_requested = Signal()
+    loop_toggled = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -31,6 +32,11 @@ class SelectionCard(QWidget):
         self.listen_button = QPushButton("Écouter")
         self.listen_button.setToolTip("Écouter uniquement la sélection, puis s'arrêter (Maj+Espace)")
         self.listen_button.clicked.connect(self.listen_requested.emit)
+
+        self.loop_button = QPushButton("Boucle")
+        self.loop_button.setCheckable(True)
+        self.loop_button.setToolTip("Répéter la sélection en boucle pour régler les bornes (L)")
+        self.loop_button.toggled.connect(self.loop_toggled.emit)
 
         self.create_button = accent_button("Créer la séquence")
         self.create_button.clicked.connect(self.create_requested.emit)
@@ -71,6 +77,7 @@ class SelectionCard(QWidget):
         actions.setSpacing(8)
         actions.addWidget(hint, 1)
         actions.addWidget(self.listen_button)
+        actions.addWidget(self.loop_button)
         actions.addWidget(self._mark_start_button)
         actions.addWidget(self._mark_end_button)
         actions.addWidget(self.create_button)

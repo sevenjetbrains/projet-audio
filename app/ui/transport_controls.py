@@ -16,6 +16,11 @@ _PAUSE_ICON = "pause"
 _DEFAULT_VOLUME = 78
 # Délai minimal entre deux déplacements pendant un glissement : au-delà, seul le dernier est appliqué.
 _SEEK_INTERVAL_MS = 40
+# Pendant la lecture d'une plage, la position est relue à cette cadence : le lecteur ne la signale que toutes
+# les ~100 ms, ce qui ferait dépasser la borne de fin (et rendrait la boucle audiblement décalée).
+_RANGE_POLL_MS = 15
+# En dessous de cette durée une boucle ne serait qu'un grésillement : la plage est jouée une fois.
+_MIN_LOOP_SECONDS = 0.1
 
 
 class TransportControls(QWidget):
@@ -23,6 +28,7 @@ class TransportControls(QWidget):
     playback_error = Signal(str)
     playing_changed = Signal(bool)
     range_finished = Signal()
+    range_looped = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -41,8 +47,13 @@ class TransportControls(QWidget):
         self._pending_seek_ms: int | None = None
         self._restore_slot = None
         # Lecture d'une plage (« écouter la sélection ») : arrêt automatique à la fin.
+        self._range_start_ms = 0
         self._range_end_ms: int | None = None
         self._range_armed = False
+        self._loop_range = False
+        self._range_timer = QTimer(self)
+        self._range_timer.setInterval(_RANGE_POLL_MS)
+        self._range_timer.timeout.connect(lambda: self._check_range_end(self._player.position()))
 
         self._play_button = icon_button(_PLAY_ICON, size=40)
         self._play_button.setProperty("accent", "true")
@@ -144,14 +155,38 @@ class TransportControls(QWidget):
         self._player.play()
 
     def play_range(self, start_seconds: float, end_seconds: float) -> None:
-        """Lit de `start` à `end` puis se met en pause à la fin (écouter une sélection avant de la couper)."""
+        """Lit de `start` à `end` puis se met en pause à la fin, ou reboucle si la boucle est activée."""
         if not self._play_button.isEnabled() or end_seconds <= start_seconds:
             return
         self._pending_seek_ms = None
+        self._range_start_ms = int(start_seconds * 1000)
         self._range_end_ms = int(end_seconds * 1000)
-        self._range_armed = False  # armée à la première position reçue AVANT la fin (voir _on_position_changed)
-        self._player.setPosition(int(start_seconds * 1000))
+        self._range_armed = False  # armée à la première position reçue AVANT la fin (voir _check_range_end)
+        self._player.setPosition(self._range_start_ms)
         self._player.play()
+        self._range_timer.start()
+
+    def set_loop(self, enabled: bool) -> None:
+        """Boucle de la plage : à sa fin, la lecture reprend à son début au lieu de s'arrêter."""
+        self._loop_range = enabled
+
+    @property
+    def is_looping(self) -> bool:
+        return self._loop_range
+
+    def update_range(self, start_seconds: float, end_seconds: float) -> None:
+        """Change les bornes de la plage en cours de lecture (réglage fin des bornes) sans l'interrompre."""
+        if self._range_end_ms is None or end_seconds <= start_seconds:
+            return
+        self._range_start_ms = int(start_seconds * 1000)
+        self._range_end_ms = int(end_seconds * 1000)
+        position = self._player.position()
+        if position < self._range_start_ms or position >= self._range_end_ms:
+            self._restart_range()  # la lecture était hors de la nouvelle plage : retour à son début
+
+    def _restart_range(self) -> None:
+        self._range_armed = False  # des positions périmées (après la fin) peuvent encore arriver : on les ignore
+        self._player.setPosition(self._range_start_ms)
 
     @property
     def is_playing_range(self) -> bool:
@@ -160,6 +195,7 @@ class TransportControls(QWidget):
     def _clear_range(self) -> None:
         self._range_end_ms = None
         self._range_armed = False
+        self._range_timer.stop()
 
     def stop(self) -> None:
         self._clear_range()
@@ -276,6 +312,11 @@ class TransportControls(QWidget):
             return
         if not self._range_armed:
             return  # position périmée reçue avant que le déplacement au début de la plage soit appliqué
+        long_enough = (end - self._range_start_ms) / 1000.0 >= _MIN_LOOP_SECONDS
+        if self._loop_range and long_enough:
+            self._restart_range()
+            self.range_looped.emit()
+            return
         self._clear_range()
         self._player.pause()
         self._player.setPosition(end)
