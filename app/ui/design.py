@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.icons import ICON_NAMES, set_button_icon
+
 
 def card(variant: str = "true") -> QFrame:
     """Conteneur arrondi. `variant` : "true" (carte standard), "soft", "success"."""
@@ -86,13 +88,20 @@ def flat_button(text: str) -> QPushButton:
     return button
 
 
-def icon_button(glyph: str, size: int = 34, flat: bool = False) -> QPushButton:
-    """Bouton carré ne portant qu'un glyphe (lecture, stop, plein écran…)."""
-    button = QPushButton(glyph)
+def icon_button(icon: str, size: int = 34, flat: bool = False) -> QPushButton:
+    """Bouton carré ne portant qu'une icône (lecture, stop, plein écran…).
+
+    `icon` est le nom d'une icône vectorielle de `app.ui.icons` ; tout autre texte est affiché tel quel.
+    """
+    button = QPushButton()
     button.setFixedSize(size, size)
     button.setProperty("icon", "true")
     if flat:
         button.setProperty("flat", "true")
+    if icon in ICON_NAMES:
+        set_button_icon(button, icon)
+    else:
+        button.setText(icon)
     return button
 
 

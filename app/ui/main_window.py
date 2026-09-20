@@ -40,6 +40,7 @@ from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.auto_split_dialog import AutoSplitDialog
 from app.ui.design import card_layout, flat_button, icon_button, label, section_header
 from app.ui.export_dialog import ExportDialog
+from app.ui.icons import set_icon_palette
 from app.ui.processing_dialog import ProcessingDialog
 from app.ui.selection_card import SelectionCard
 from app.ui.sequence_list import SequenceListWidget
@@ -150,10 +151,10 @@ class MainWindow(QMainWindow):
 
         self._undo_action = self._sequence_list.undo_stack.createUndoAction(self, "Annuler")
         self._undo_action.setShortcut(QKeySequence("Ctrl+Z"))
-        self._undo_action.setProperty("toolbar_label", "↶")
+        self._undo_action.setProperty("toolbar_icon", "undo")
         self._redo_action = self._sequence_list.undo_stack.createRedoAction(self, "Refaire")
         self._redo_action.setShortcut(QKeySequence("Ctrl+Y"))
-        self._redo_action.setProperty("toolbar_label", "↷")
+        self._redo_action.setProperty("toolbar_icon", "redo")
 
         # Sans raccourci : les boutons de la fenêtre portent déjà ceux de leurs commandes.
         self._auto_split_action = self._action(
@@ -163,7 +164,8 @@ class MainWindow(QMainWindow):
         self._processing_action = self._action(
             "Appliquer un traitement…", None, self._open_processing_dialog, "Traitement"
         )
-        self._theme_toggle_action = self._action("Changer de thème", None, self._toggle_theme, "🌙")
+        self._theme_toggle_action = self._action("Changer de thème", None, self._toggle_theme)
+        self._theme_toggle_action.setProperty("toolbar_icon", "moon")
         self._shortcuts_action = self._action("Raccourcis clavier", "F1", self._show_shortcuts_help, "F1 Aide")
 
     def _action(self, text: str, shortcut: str | None, slot, toolbar_label: str | None = None) -> QAction:
@@ -222,10 +224,10 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_waveform_header(self) -> QHBoxLayout:
-        zoom_out_button = icon_button("🔍-", size=30, flat=True)
+        zoom_out_button = icon_button("zoom_out", size=30, flat=True)
         zoom_out_button.clicked.connect(self._waveform_widget.zoom_out)
         zoom_out_button.setToolTip("Dézoomer (molette sur la waveform)")
-        zoom_in_button = icon_button("🔍+", size=30, flat=True)
+        zoom_in_button = icon_button("zoom_in", size=30, flat=True)
         zoom_in_button.clicked.connect(self._waveform_widget.zoom_in)
         zoom_in_button.setToolTip("Zoomer (molette sur la waveform)")
 
@@ -305,11 +307,13 @@ class MainWindow(QMainWindow):
 
     def _build_title_bar_widgets(self) -> None:
         """Nom de l'application à gauche des menus, nom du projet à droite (comme la maquette)."""
-        app_title = label(APP_NAME, "appTitle")
-        app_title.setContentsMargins(12, 0, 10, 0)
+        # Références conservées : la barre de menus reparente ces widgets sans que PySide le sache, et un
+        # QLabel local serait détruit à la sortie de la fonction (le titre n'apparaîtrait alors jamais).
+        self._app_title_label = label(APP_NAME, "appTitle")
+        self._app_title_label.setContentsMargins(12, 0, 10, 0)
         self._project_name_label = label("", "projectName")
         self._project_name_label.setContentsMargins(0, 0, 12, 0)
-        self.menuBar().setCornerWidget(app_title, Qt.Corner.TopLeftCorner)
+        self.menuBar().setCornerWidget(self._app_title_label, Qt.Corner.TopLeftCorner)
         self.menuBar().setCornerWidget(self._project_name_label, Qt.Corner.TopRightCorner)
 
     def _build_help_menu(self) -> None:
@@ -357,6 +361,7 @@ class MainWindow(QMainWindow):
 
     def _apply_theme_to_painted_widgets(self, theme) -> None:
         """Répercute le thème sur les widgets dessinés au QPainter, hors feuille de style."""
+        set_icon_palette(theme.palette)
         self._waveform_widget.set_theme(theme)
         self._waveform_overview.set_theme(theme)
         self._sequence_list.set_theme(theme)
@@ -495,11 +500,19 @@ class MainWindow(QMainWindow):
         project = self._video_panel.project
         if project is None:
             self.setWindowTitle(APP_NAME)
-            self._project_name_label.setText("")
+            self._set_project_name_label("")
             return
         suffix = " *" if self._dirty else ""
         self.setWindowTitle(f"{project.name}{suffix} — {APP_NAME}")
-        self._project_name_label.setText(f"{project.name}{suffix}")
+        self._set_project_name_label(f"{project.name}{suffix}")
+
+    def _set_project_name_label(self, text: str) -> None:
+        """Nom du projet à droite de la barre de menus ; la barre ne redimensionne pas seule ses coins."""
+        self._project_name_label.setText(text)
+        self._project_name_label.adjustSize()
+        # Re-poser le widget force la barre de menus à recalculer la place réservée au coin.
+        self.menuBar().setCornerWidget(self._project_name_label, Qt.Corner.TopRightCorner)
+        self._project_name_label.show()
 
     def _confirm_discard_changes(self) -> bool:
         """Propose d'enregistrer les modifications en cours ; False si l'utilisateur annule."""

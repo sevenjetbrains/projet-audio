@@ -3,15 +3,16 @@
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import QHBoxLayout, QSlider, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QWidget
 
 from app.ui.design import icon_button, label
+from app.ui.icons import set_button_icon, set_label_icon
 from app.ui.shortcuts import set_button_shortcut
 from app.utils.time_utils import format_timecode
 
 _SKIP_SECONDS = 5.0
-_PLAY_GLYPH = "▶"
-_PAUSE_GLYPH = "⏸"
+_PLAY_ICON = "play"
+_PAUSE_ICON = "pause"
 _DEFAULT_VOLUME = 78
 
 
@@ -30,23 +31,24 @@ class TransportControls(QWidget):
         self._player.positionChanged.connect(self._on_position_changed)
         self._player.errorOccurred.connect(self._on_error_occurred)
 
-        self._play_button = icon_button(_PLAY_GLYPH, size=40)
+        self._play_button = icon_button(_PLAY_ICON, size=40)
         self._play_button.setProperty("accent", "true")
+        set_button_icon(self._play_button, _PLAY_ICON)  # relancé : l'icône du bouton d'accent est blanche
         self._play_button.clicked.connect(self._toggle_play_pause)
         self._play_button.setEnabled(False)
         self._play_button.setToolTip("Lecture / pause (Espace)")
 
-        self._stop_button = icon_button("■")
+        self._stop_button = icon_button("stop")
         self._stop_button.clicked.connect(self.stop)
         self._stop_button.setEnabled(False)
         set_button_shortcut(self._stop_button, "Ctrl+Space", "Arrêter la lecture")
 
-        self._back_button = icon_button("≪")
+        self._back_button = icon_button("back")
         self._back_button.clicked.connect(lambda: self.skip(-_SKIP_SECONDS))
         self._back_button.setEnabled(False)
         set_button_shortcut(self._back_button, "Alt+Left", f"Reculer de {_SKIP_SECONDS:.0f} s")
 
-        self._forward_button = icon_button("≫")
+        self._forward_button = icon_button("forward")
         self._forward_button.clicked.connect(lambda: self.skip(_SKIP_SECONDS))
         self._forward_button.setEnabled(False)
         set_button_shortcut(self._forward_button, "Alt+Right", f"Avancer de {_SKIP_SECONDS:.0f} s")
@@ -81,7 +83,9 @@ class TransportControls(QWidget):
         layout.addWidget(self._forward_button)
         layout.addSpacing(6)
         layout.addWidget(self._now_playing_label, 1)
-        layout.addWidget(label("🔊", "mutedLabel"))
+        volume_icon = QLabel()
+        set_label_icon(volume_icon, "volume")
+        layout.addWidget(volume_icon)
         layout.addWidget(label("Volume", "mutedLabel"))
         layout.addWidget(self._volume_slider)
         layout.addWidget(self._volume_label)
@@ -170,7 +174,7 @@ class TransportControls(QWidget):
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         playing = state == QMediaPlayer.PlaybackState.PlayingState
-        self._play_button.setText(_PAUSE_GLYPH if playing else _PLAY_GLYPH)
+        set_button_icon(self._play_button, _PAUSE_ICON if playing else _PLAY_ICON)
         self._play_button.setToolTip(("Pause" if playing else "Lecture") + " (Espace)")
         self.playing_changed.emit(playing)
 

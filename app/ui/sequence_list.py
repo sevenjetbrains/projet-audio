@@ -67,7 +67,7 @@ class SequenceListWidget(QWidget):
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setWordWrap(True)
 
-        self._play_button = icon_button("▶")
+        self._play_button = icon_button("play")
         self._play_button.clicked.connect(self._on_play_clicked)
         set_button_shortcut(self._play_button, "Ctrl+L", "Lire la séquence")
         self._rename_button = QPushButton("Renommer")
@@ -76,7 +76,7 @@ class SequenceListWidget(QWidget):
         self._duplicate_button = QPushButton("Dupliquer")
         self._duplicate_button.clicked.connect(self._on_duplicate_clicked)
         set_button_shortcut(self._duplicate_button, "Ctrl+D")
-        self._delete_button = icon_button("🗑")
+        self._delete_button = icon_button("trash")
         self._delete_button.setProperty("danger", "true")
         self._delete_button.clicked.connect(self._on_delete_clicked)
         set_button_shortcut(self._delete_button, "Delete", "Supprimer")

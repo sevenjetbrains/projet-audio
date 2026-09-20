@@ -237,3 +237,23 @@ def test_double_click_on_waveform_region_plays_the_sequence(qtbot, monkeypatch):
     window._waveform_widget.region_double_clicked.emit("seq-1")
 
     assert played == ["seq-1"]
+
+
+def test_menu_bar_shows_app_title_and_project_name(qtbot, monkeypatch):
+    from PySide6.QtCore import Qt
+
+    window = _window_with_duration(qtbot, monkeypatch)
+    window.show()
+    qtbot.waitExposed(window)
+    menu_bar = window.menuBar()
+
+    left = menu_bar.cornerWidget(Qt.Corner.TopLeftCorner)
+    assert left is not None and left.text() == "AudioCut Studio"  # détruit s'il n'est pas référencé
+    assert left.isVisible()
+
+    window._set_project_name_label("ma_video_de_test *")
+    right = menu_bar.cornerWidget(Qt.Corner.TopRightCorner)
+    assert right is not None and right.text() == "ma_video_de_test *"
+    # Le coin doit être assez large pour tout le nom (avant : le texte était coupé à « t »).
+    assert right.width() >= right.fontMetrics().horizontalAdvance("ma_video_de_test *")
+    assert right.geometry().right() <= menu_bar.width()

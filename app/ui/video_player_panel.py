@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.design import badge, card, icon_button, label, section_header
+from app.ui.icons import set_button_icon
 from app.ui.transport_controls import TransportControls
 from app.ui.video_preview import VideoPreview
 from app.utils.time_utils import format_timecode_fr
@@ -54,16 +55,16 @@ class VideoPlayerPanel(QWidget):
         self._position_label = label(format_timecode_fr(0.0), "valueLabel")
         self._duration_label = label(format_timecode_fr(0.0), "valueLabel")
 
-        self._play_button = icon_button("▶")
+        self._play_button = icon_button("play")
         self._play_button.clicked.connect(transport.toggle_play_pause)
         self._play_button.setToolTip("Lecture / pause (Espace)")
-        self._mute_button = icon_button("🔊")
+        self._mute_button = icon_button("volume")
         self._mute_button.clicked.connect(self._toggle_mute)
         self._mute_button.setToolTip("Couper / rétablir le son")
-        self._snapshot_button = icon_button("🖼")
+        self._snapshot_button = icon_button("camera")
         self._snapshot_button.clicked.connect(self._save_snapshot)
         self._snapshot_button.setToolTip("Enregistrer l'image affichée en PNG")
-        self._fullscreen_button = icon_button("⛶")
+        self._fullscreen_button = icon_button("fullscreen")
         self._fullscreen_button.clicked.connect(self._toggle_fullscreen)
         self._fullscreen_button.setToolTip("Afficher l'aperçu en plein écran")
 
@@ -160,7 +161,7 @@ class VideoPlayerPanel(QWidget):
         self._position_slider.blockSignals(False)
 
     def _on_playing_changed(self, playing: bool) -> None:
-        self._play_button.setText("⏸" if playing else "▶")
+        set_button_icon(self._play_button, "pause" if playing else "play")
 
     def _on_scrub_started(self) -> None:
         self._scrubbing = True
@@ -180,7 +181,7 @@ class VideoPlayerPanel(QWidget):
     def _toggle_mute(self) -> None:
         muted = not self._transport.is_muted
         self._transport.set_muted(muted)
-        self._mute_button.setText("🔇" if muted else "🔊")
+        set_button_icon(self._mute_button, "mute" if muted else "volume")
 
     def _toggle_fullscreen(self) -> None:
         """Plein écran de la seule image vidéo (Échap ou nouveau clic pour revenir)."""
