@@ -1,8 +1,7 @@
 """Tests de la barre de contrôle du plein écran (progression, temps, lecture/pause) et de son intégration."""
 
 import pytest
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 
@@ -173,8 +172,38 @@ def test_controls_appear_over_the_video_at_the_bottom_of_the_fullscreen_window(q
     assert controls.parent() is window
     assert controls.isVisible()
     assert controls.width() == window.width()
-    assert controls.geometry().bottom() >= window.height() - 2  # collée au bord bas
-    assert controls.geometry().top() > window.height() // 2
+    # Coordonnées converties dans le repère de la fenêtre plein écran : la barre est collée au bord bas.
+    top_left = window.mapFromGlobal(controls.geometry().topLeft())
+    assert top_left.x() == 0
+    assert top_left.y() + controls.height() >= window.height() - 2
+    assert top_left.y() > window.height() // 2
+
+
+def test_controls_are_a_separate_window_so_the_native_video_surface_cannot_hide_them(preview):
+    """Qt 6 dessine l'image dans une fenêtre native qui recouvre les widgets voisins : un widget enfant restait
+    invisible derrière l'image. La barre doit donc être une fenêtre à part, posée par-dessus."""
+    preview.toggle_fullscreen()
+    controls = preview.fullscreen_controls
+
+    assert controls.isWindow()
+    flags = controls.windowFlags()
+    assert flags & Qt.WindowType.Tool
+    assert flags & Qt.WindowType.FramelessWindowHint
+    assert flags & Qt.WindowType.WindowDoesNotAcceptFocus  # les touches restent à la fenêtre plein écran
+    assert controls.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+
+def test_controls_follow_the_fullscreen_window_when_it_is_moved(qtbot, preview):
+    preview.toggle_fullscreen()
+    window = preview._fullscreen_window
+    controls = preview.fullscreen_controls
+    qtbot.waitUntil(lambda: window.width() > 600, timeout=2000)
+    before = controls.geometry().topLeft()
+
+    window.move(window.x() + 40, window.y() + 25)
+    qtbot.waitUntil(lambda: controls.geometry().topLeft() != before, timeout=2000)
+
+    assert controls.geometry().topLeft() - before == QPoint(40, 25)
 
 
 def test_controls_survive_repeated_fullscreen_round_trips(preview):
@@ -232,7 +261,7 @@ def test_controls_stay_visible_while_dragging(qtbot, preview):
     controls._on_release()
 
 
-def test_mouse_move_over_the_video_wakes_the_controls_and_the_cursor(qtbot, preview):
+def test_cursor_movement_wakes_the_controls_and_the_cursor(qtbot, preview, monkeypatch):
     controls = preview.fullscreen_controls
     controls.set_playing(True)
     preview.toggle_fullscreen()
@@ -241,14 +270,36 @@ def test_mouse_move_over_the_video_wakes_the_controls_and_the_cursor(qtbot, prev
     window._show_controls()
     qtbot.waitUntil(lambda: not controls.isVisible(), timeout=2000)
 
-    move = QMouseEvent(
-        QEvent.Type.MouseMove, QPointF(50, 50), QPointF(50, 50), Qt.MouseButton.NoButton,
-        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-    )
-    window.eventFilter(preview.video_widget, move)
+    class _MovedCursor:
+        @staticmethod
+        def pos():
+            return QPoint(321, 654)
+
+    monkeypatch.setattr("app.ui.video_preview.QCursor", _MovedCursor)
+    window._poll_cursor()
 
     assert controls.isVisible()
     assert window.cursor().shape() != Qt.CursorShape.BlankCursor
+
+
+def test_a_still_cursor_does_not_wake_the_controls(qtbot, preview, monkeypatch):
+    controls = preview.fullscreen_controls
+    controls.set_playing(True)
+    preview.toggle_fullscreen()
+    window = preview._fullscreen_window
+    window._idle_timer.setInterval(40)
+    window._show_controls()
+    qtbot.waitUntil(lambda: not controls.isVisible(), timeout=2000)
+
+    class _SameCursor:
+        @staticmethod
+        def pos():
+            return window._last_cursor
+
+    monkeypatch.setattr("app.ui.video_preview.QCursor", _SameCursor)
+    window._poll_cursor()
+
+    assert not controls.isVisible()
 
 
 # --- clavier ---------------------------------------------------------------------------------------------
@@ -279,6 +330,15 @@ def test_controls_stay_visible_while_the_mouse_is_over_them(qtbot, preview, monk
     qtbot.wait(250)
 
     assert controls.isVisible()
+
+
+def test_a_key_received_by_the_bar_is_forwarded_to_the_fullscreen_window(qtbot, preview):
+    preview.toggle_fullscreen()
+    rec = _Recorder(preview.fullscreen_controls)
+
+    QTest.keyClick(preview.fullscreen_controls, Qt.Key.Key_Space)
+
+    assert rec.play == 1
 
 
 def test_escape_still_leaves_fullscreen(preview):
@@ -336,3 +396,45 @@ def test_controls_commands_reach_the_transport(panel, monkeypatch):
     controls.skip_requested.emit(-5.0)
 
     assert calls == ["toggle", ("live", 4.0), ("exact", 9.0), ("skip", -5.0)]
+
+
+# --- rendu : fond translucide, sans héritage du noir de la fenêtre ----------------------------------------------
+
+
+def test_bar_background_is_translucent_black_not_opaque_and_not_transparent(qtbot, preview):
+    preview.toggle_fullscreen()
+    controls = preview.fullscreen_controls
+    controls.resize(600, 68)
+
+    pixel = controls.grab().toImage().pixelColor(4, 4)  # coin : pas de contrôle à cet endroit
+
+    assert (pixel.red(), pixel.green(), pixel.blue()) == (0, 0, 0)
+    # Ni transparent (texte blanc illisible sur une image claire), ni opaque (l'image disparaît derrière la barre).
+    assert 100 < pixel.alpha() < 240
+
+
+def test_black_of_the_fullscreen_window_is_not_inherited_by_the_bar_widgets(preview):
+    preview.toggle_fullscreen()
+    window = preview._fullscreen_window
+
+    # Un style sans sélecteur (« background-color: black ») s'appliquait à tous les descendants, barre comprise :
+    # le curseur de progression était entouré d'un rectangle noir opaque.
+    assert window.styleSheet().lstrip().startswith("#")
+    assert "fullscreenVideoWindow" in window.styleSheet()
+    assert preview.fullscreen_controls._slider.styleSheet() == ""
+
+
+def test_progress_slider_is_drawn_over_the_translucent_background(preview):
+    preview.toggle_fullscreen()
+    controls = preview.fullscreen_controls
+    controls.resize(800, 68)
+    controls.set_duration(100.0)
+    controls.set_position(50.0)
+
+    image = controls.grab().toImage()
+    slider = controls._slider
+    center = slider.mapTo(controls, slider.rect().center())
+    ratio = image.devicePixelRatio()
+    behind = image.pixelColor(int(center.x() * ratio), int((center.y() - 20) * ratio))  # au-dessus du curseur
+
+    assert behind.alpha() < 240  # l'arrière-plan reste translucide autour du curseur (avant : bloc noir opaque)

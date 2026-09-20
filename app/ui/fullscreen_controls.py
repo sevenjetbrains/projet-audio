@@ -6,17 +6,15 @@ demandes (bascule lecture/pause, déplacement, saut). La fenêtre plein écran l
 """
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QMouseEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QStyle, QWidget
+from PySide6.QtGui import QColor, QIcon, QMouseEvent, QPainter
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QSlider, QStyle, QWidget
 
 from app.ui.icons import ICON_SIZE, render_icon
 from app.utils.time_utils import format_timecode_fr
 
 _ICON_COLOR = "#ffffff"  # la barre est toujours sombre, quel que soit le thème de l'application
+_BACKGROUND = QColor(0, 0, 0, 185)  # noir translucide : l'image reste devinée derrière, le texte blanc reste lisible
 _STYLE = """
-FullscreenControls {
-    background-color: rgba(0, 0, 0, 175);
-}
 FullscreenControls QLabel {
     color: #ffffff;
     font-size: 14px;
@@ -61,6 +59,13 @@ class _SeekSlider(QSlider):
 
 
 class FullscreenControls(QWidget):
+    # Fenêtre sans bordure, hors barre des tâches, qui ne prend jamais le focus (les touches restent à la fenêtre plein écran).
+    OVERLAY_FLAGS = (
+        Qt.WindowType.Tool
+        | Qt.WindowType.FramelessWindowHint
+        | Qt.WindowType.WindowDoesNotAcceptFocus
+    )
+
     play_toggled = Signal()
     seek_live = Signal(float)  # pendant un glissement : déplacements à regrouper
     seek_committed = Signal(float)  # au relâchement : position exacte
@@ -68,7 +73,6 @@ class FullscreenControls(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(_STYLE)
         self._duration = 0.0
         self._dragging = False
@@ -134,6 +138,22 @@ class FullscreenControls(QWidget):
     @property
     def is_dragging(self) -> bool:
         return self._dragging
+
+    def paintEvent(self, event) -> None:
+        # Fond peint à la main : une feuille de style ne suffit pas pour une fenêtre translucide (le fond noir de la
+        # fenêtre plein écran, hérité par ses descendants, le rendrait opaque ou le ferait disparaître selon le cas).
+        painter = QPainter(self)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.fillRect(self.rect(), _BACKGROUND)
+        painter.end()
+
+    def keyPressEvent(self, event) -> None:
+        """Sécurité : une touche reçue ici (fenêtre activée par erreur) est renvoyée à la fenêtre plein écran."""
+        owner = self.parentWidget()
+        if owner is not None:
+            QApplication.sendEvent(owner, event)
+        else:
+            super().keyPressEvent(event)
 
     # --- Interactions -------------------------------------------------------------------------------
 

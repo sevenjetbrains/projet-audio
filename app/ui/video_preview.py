@@ -3,7 +3,8 @@
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QCursor
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import QLabel, QStackedLayout, QVBoxLayout, QWidget
 
@@ -13,6 +14,7 @@ from app.ui.fullscreen_controls import FullscreenControls
 _PLACEHOLDER = "▶\nimage de la vidéo"
 _CONTROLS_IDLE_MS = 2500  # sans mouvement de souris, la barre de contrôle se masque
 _KEY_SKIP_SECONDS = 5.0
+_CURSOR_POLL_MS = 100  # fréquence de détection d'un mouvement de souris (voir _FullscreenWindow._poll_cursor)
 
 
 class _FullscreenWindow(QWidget):
@@ -21,6 +23,11 @@ class _FullscreenWindow(QWidget):
     Échap, un double-clic ou la fermeture de la fenêtre demandent le retour (`exit_requested`) : c'est
     `VideoPreview` qui remet ensuite l'image à sa place, pour que la fenêtre ne se ferme jamais avec elle.
     La barre de contrôle se superpose en bas de l'image et se masque après un moment sans mouvement de souris.
+
+    Dans Qt 6, l'image vidéo est une fenêtre native : elle recouvre toujours les widgets voisins, qui restent
+    invisibles derrière elle. La barre est donc une fenêtre à part (sans bordure, sans prise de focus),
+    rattachée à cette fenêtre et posée par-dessus, et non un widget enfant. Pour la même raison, les mouvements de
+    souris au-dessus de l'image n'arrivent pas jusqu'ici : on surveille la position du curseur à intervalles réguliers.
     """
 
     exit_requested = Signal()
@@ -28,10 +35,14 @@ class _FullscreenWindow(QWidget):
     def __init__(self, controls: FullscreenControls, parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setWindowTitle("Aperçu vidéo")
-        self.setStyleSheet("background-color: black;")
+        # Limité à cette fenêtre : sans sélecteur, le noir serait hérité par la barre de contrôle et ses widgets.
+        self.setObjectName("fullscreenVideoWindow")
+        self.setStyleSheet("#fullscreenVideoWindow { background-color: black; }")
         self.setMouseTracking(True)
         self._controls = controls
-        controls.setParent(self)
+        controls.setParent(self, FullscreenControls.OVERLAY_FLAGS)
+        controls.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        controls.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -41,26 +52,38 @@ class _FullscreenWindow(QWidget):
         self._idle_timer.setInterval(_CONTROLS_IDLE_MS)
         self._idle_timer.timeout.connect(self._hide_controls)
 
+        self._last_cursor = QCursor.pos()
+        self._cursor_timer = QTimer(self)
+        self._cursor_timer.setInterval(_CURSOR_POLL_MS)
+        self._cursor_timer.timeout.connect(self._poll_cursor)
+        self._cursor_timer.start()
+
     def attach_video(self, video_widget: QWidget) -> None:
         """Place l'image dans la fenêtre ; ses mouvements de souris réveillent la barre de contrôle."""
         self.layout().addWidget(video_widget)
-        video_widget.setMouseTracking(True)
-        video_widget.installEventFilter(self)
         self._show_controls()
 
     def release_video(self, video_widget: QWidget) -> None:
-        video_widget.removeEventFilter(self)
         self.layout().removeWidget(video_widget)
 
     # --- Barre de contrôle : placement et masquage automatique --------------------------------------
 
     def _place_controls(self) -> None:
+        """Colle la barre au bord bas de l'écran (coordonnées globales : c'est une fenêtre à part entière)."""
         height = self._controls.sizeHint().height()
-        self._controls.setGeometry(0, self.height() - height, self.width(), height)
-        self._controls.raise_()
+        top_left = self.mapToGlobal(QPoint(0, self.height() - height))
+        self._controls.setGeometry(QRect(top_left, QSize(self.width(), height)))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._place_controls()
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._place_controls()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
         self._place_controls()
 
     def _show_controls(self) -> None:
@@ -78,10 +101,12 @@ class _FullscreenWindow(QWidget):
         self._controls.hide()
         self.setCursor(Qt.CursorShape.BlankCursor)
 
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress):
+    def _poll_cursor(self) -> None:
+        """Réveille la barre quand le curseur a bougé (les événements souris de l'image native n'arrivent pas ici)."""
+        position = QCursor.pos()
+        if position != self._last_cursor:
+            self._last_cursor = position
             self._show_controls()
-        return False
 
     def mouseMoveEvent(self, event) -> None:
         self._show_controls()
@@ -198,7 +223,9 @@ class VideoPreview(QWidget):
         self._fullscreen_window = None
         window.release_video(self._video_widget)
         self._fullscreen_controls.hide()
-        self._fullscreen_controls.setParent(self)  # évite qu'elle soit détruite avec la fenêtre plein écran
+        # Redevient un simple widget de l'aperçu (évite qu'elle soit détruite avec la fenêtre plein écran).
+        self._fullscreen_controls.setParent(self, Qt.WindowType.Widget)
+        self._fullscreen_controls.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self._stack.addWidget(self._video_widget)
         self._stack.setCurrentWidget(self._video_widget)
         self._video_widget.show()
