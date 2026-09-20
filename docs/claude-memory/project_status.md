@@ -11,6 +11,8 @@ Dernier point de reprise : commit `1252d12` sur `main` (github.com/sevenjetbrain
 
 **Fait dans cette session (locale) :** correction de la tête de lecture pendant la lecture d'une séquence — elle affiche maintenant `source_start + position` au lieu de la position brute dans le fichier de la séquence. Le clic sur la waveform pour chercher une position recharge désormais la piste source si une séquence (ou le résultat fusionné) était en cours de lecture. Le résultat fusionné (ordre différent, crossfades) n'a pas de correspondance simple avec la timeline source : la tête de lecture n'y est plus mise à jour (au lieu d'afficher une position erronée).
 
+**Lecteur vidéo (demandé par l'utilisateur) :** `app/ui/video_preview.py` (QVideoWidget + placeholder) branché sur le QMediaPlayer de `TransportControls` via `set_video_output`. La lecture de la *source* utilise désormais le fichier **vidéo** (image + son synchronisés nativement, aucune dérive) et non plus `source.wav` ; le WAV reste utilisé pour la waveform, les découpes et la lecture des séquences/fusion. Si Qt ne décode pas le format, `playback_error` déclenche un repli unique sur le WAV extrait (message en barre d'état).
+
 **Prochaine étape :** aucune identifiée pour l'instant — demander à l'utilisateur, ou proposer une amélioration (ex. la timeline visuelle avancée §13 du spec original, ou le "aperçu avant suppression" des silences détectés côté UI qui manque encore).
 
 **Pièges connus :**

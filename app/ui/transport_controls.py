@@ -14,6 +14,7 @@ _SKIP_SECONDS = 5.0
 
 class TransportControls(QWidget):
     position_changed = Signal(float)
+    playback_error = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -23,6 +24,7 @@ class TransportControls(QWidget):
         self._player.setAudioOutput(self._audio_output)
         self._player.playbackStateChanged.connect(self._on_playback_state_changed)
         self._player.positionChanged.connect(self._on_position_changed)
+        self._player.errorOccurred.connect(self._on_error_occurred)
 
         self._play_button = QPushButton("▶ Lecture")
         self._play_button.clicked.connect(self._toggle_play_pause)
@@ -73,6 +75,10 @@ class TransportControls(QWidget):
         for button in (self._play_button, self._stop_button, self._back_button, self._forward_button):
             button.setEnabled(True)
 
+    def set_video_output(self, video_widget) -> None:
+        """Branche la sortie vidéo du lecteur (aperçu de la vidéo source)."""
+        self._player.setVideoOutput(video_widget)
+
     @property
     def position_seconds(self) -> float:
         return self._player.position() / 1000.0
@@ -116,6 +122,10 @@ class TransportControls(QWidget):
             self._play_button.setText("⏸ Pause")
         else:
             self._play_button.setText("▶ Lecture")
+
+    def _on_error_occurred(self, _error, error_string: str) -> None:
+        """Média illisible (codec non géré par Qt, fichier absent) : l'appelant peut proposer un repli."""
+        self.playback_error.emit(error_string)
 
     def _on_position_changed(self, position_ms: int) -> None:
         seconds = position_ms / 1000.0

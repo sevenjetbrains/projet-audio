@@ -39,6 +39,7 @@ from app.ui.sequence_list import SequenceListWidget
 from app.ui.shortcuts import set_button_shortcut, shortcuts_help_html
 from app.ui.transport_controls import TransportControls
 from app.ui.video_panel import VideoPanel
+from app.ui.video_preview import VideoPreview
 from app.utils.time_utils import format_timecode
 from app.ui.waveform_widget import WaveformWidget
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
@@ -52,8 +53,10 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
 
         self._video_panel = VideoPanel(ffmpeg_binaries)
+        self._video_preview = VideoPreview()
         self._waveform_widget = WaveformWidget()
         self._transport_controls = TransportControls()
+        self._transport_controls.set_video_output(self._video_preview.video_widget)
         self._video_panel.set_import_guard(self._confirm_discard_changes)
         self._sequence_list = SequenceListWidget(self._video_panel.ffmpeg_service)
         self._audio_processing_panel = AudioProcessingPanel(self._video_panel.ffmpeg_service)
@@ -95,9 +98,13 @@ class MainWindow(QMainWindow):
         middle_layout.addWidget(self._sequence_list, stretch=1)
         middle_layout.addWidget(self._audio_processing_panel, stretch=1)
 
+        header_layout = QHBoxLayout()
+        header_layout.addWidget(self._video_preview, stretch=2)
+        header_layout.addWidget(self._video_panel, stretch=1)
+
         central = QWidget()
         layout = QVBoxLayout()
-        layout.addWidget(self._video_panel)
+        layout.addLayout(header_layout, stretch=2)
         layout.addWidget(self._waveform_widget, stretch=1)
         layout.addLayout(selection_form)
         layout.addLayout(middle_layout, stretch=1)
@@ -106,6 +113,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self._playback_offset: float | None = 0.0
+        # La source est lue depuis le fichier vidéo (image + son synchronisés) ; si Qt ne sait pas
+        # le décoder, on bascule une seule fois sur le WAV extrait par FFmpeg.
+        self._video_playback_failed = False
 
         self._dirty = False
         self._project_summary_label = QLabel()
@@ -266,6 +276,7 @@ class MainWindow(QMainWindow):
         self._video_panel.audio_ready.connect(self._on_audio_ready)
         self._waveform_widget.seek_requested.connect(self._on_waveform_seek_requested)
         self._transport_controls.position_changed.connect(self._on_playback_position_changed)
+        self._transport_controls.playback_error.connect(self._on_playback_error)
         self._waveform_widget.selection_changed.connect(self._on_selection_changed)
         self._waveform_widget.region_clicked.connect(self._sequence_list.select_sequence)
         self._waveform_widget.region_double_clicked.connect(self._sequence_list.play_sequence)
@@ -316,7 +327,8 @@ class MainWindow(QMainWindow):
 
     def _on_audio_ready(self, wav_path: str, duration: float) -> None:
         self._waveform_widget.load(wav_path, duration)
-        self._transport_controls.set_source(wav_path)
+        self._video_playback_failed = False
+        self._load_source_playback()
         self._playback_offset = 0.0
         self._sequence_list.set_project(self._video_panel.project)
         self._audio_processing_panel.set_project(self._video_panel.project)
@@ -398,12 +410,41 @@ class MainWindow(QMainWindow):
         if self._playback_offset is not None:
             self._waveform_widget.set_playhead(self._playback_offset + seconds)
 
+    def _source_playback_path(self) -> str:
+        """Média à lire pour la source : la vidéo (image + son), ou le WAV extrait en repli."""
+        project = self._video_panel.project
+        if project is None:
+            return ""
+        video = project.source_video
+        if video is not None and video.path and not self._video_playback_failed:
+            return video.path
+        return project.original_audio_path
+
+    def _load_source_playback(self) -> None:
+        path = self._source_playback_path()
+        if not path:
+            return
+        self._transport_controls.set_source(path)
+        self._video_preview.set_active(not self._video_playback_failed)
+
+    def _on_playback_error(self, message: str) -> None:
+        """Vidéo illisible par Qt : on rebascule sur l'audio extrait, qui lui est toujours lisible."""
+        if self._video_playback_failed or self._playback_offset != 0.0:
+            return
+        project = self._video_panel.project
+        if project is None or not project.original_audio_path:
+            return
+        self._video_playback_failed = True
+        self._load_source_playback()
+        self.statusBar().showMessage(
+            "Aperçu vidéo indisponible pour ce format : lecture de l'audio extrait uniquement.", 8000
+        )
+
     def _on_waveform_seek_requested(self, seconds: float) -> None:
         """Un clic sur la waveform (piste source) doit reprendre la lecture de la source,
         même si une séquence ou le résultat fusionné était en cours de lecture."""
-        project = self._video_panel.project
-        if self._playback_offset != 0.0 and project is not None and project.original_audio_path:
-            self._transport_controls.set_source(project.original_audio_path)
+        if self._playback_offset != 0.0 and self._source_playback_path():
+            self._load_source_playback()
             self._playback_offset = 0.0
         self._transport_controls.set_position_seconds(seconds)
 
