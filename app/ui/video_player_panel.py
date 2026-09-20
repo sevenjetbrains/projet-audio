@@ -79,6 +79,19 @@ class VideoPlayerPanel(QWidget):
 
         transport.position_changed.connect(self._on_position_changed)
         transport.playing_changed.connect(self._on_playing_changed)
+        self._wire_fullscreen_controls()
+
+    def _wire_fullscreen_controls(self) -> None:
+        """Relie la barre du plein écran au lecteur : elle affiche sa position et lui envoie ses commandes."""
+        controls = self._preview.fullscreen_controls
+        transport = self._transport
+        transport.position_changed.connect(lambda seconds: controls.set_position(seconds, transport.duration_seconds))
+        transport.playing_changed.connect(controls.set_playing)
+        controls.play_toggled.connect(transport.toggle_play_pause)
+        controls.seek_live.connect(transport.seek_throttled)
+        controls.seek_committed.connect(transport.set_position_seconds)
+        controls.skip_requested.connect(transport.skip)
+        controls.set_playing(transport.is_playing)
 
     # --- Construction de l'interface --------------------------------------
 
