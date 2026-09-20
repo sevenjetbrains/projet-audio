@@ -145,9 +145,88 @@ def test_sequence_play_request_loads_and_plays(qtbot, monkeypatch):
     played = []
     monkeypatch.setattr(window._transport_controls, "load_and_play", played.append)
 
-    window._sequence_list.play_requested.emit("Séquence 1", "C:/x/seq.wav")
+    window._sequence_list.play_requested.emit("Séquence 1", "C:/x/seq.wav", 12.5)
 
     assert played == ["C:/x/seq.wav"]
+    assert window._playback_offset == 12.5
+
+
+def test_playback_position_offset_by_playing_sequence_start(qtbot, monkeypatch):
+    window = _window_with_duration(qtbot, monkeypatch)
+    positions = []
+    monkeypatch.setattr(window._waveform_widget, "set_playhead", positions.append)
+
+    window._sequence_list.play_requested.emit("Séquence 1", "C:/x/seq.wav", 12.5)
+    window._transport_controls.position_changed.emit(1.5)
+
+    assert positions == [14.0]
+
+
+def test_playback_offset_reset_when_full_source_loaded(qtbot, monkeypatch):
+    from app.models.project import Project
+
+    window = _window_with_duration(qtbot, monkeypatch)
+    window._playback_offset = 12.5
+    project = Project(name="demo")
+    monkeypatch.setattr(type(window._video_panel), "project", property(lambda self: project))
+
+    window._on_audio_ready("C:/x/source.wav", 10.0)
+
+    assert window._playback_offset == 0.0
+
+
+def test_merge_preview_suppresses_playhead_offset(qtbot, monkeypatch):
+    from app.models.project import Project
+
+    window = _window_with_duration(qtbot, monkeypatch)
+    project = Project(name="demo", original_audio_path="C:/x/source.wav")
+    monkeypatch.setattr(type(window._video_panel), "project", property(lambda self: project))
+    monkeypatch.setattr("app.ui.main_window.merge_sequences", lambda *a, **k: "C:/x/final.wav")
+    monkeypatch.setattr(window._transport_controls, "load_and_play", lambda *_: None)
+
+    window._on_merge_preview_clicked()
+
+    assert window._playback_offset is None
+
+    positions = []
+    monkeypatch.setattr(window._waveform_widget, "set_playhead", positions.append)
+    window._transport_controls.position_changed.emit(3.0)
+    assert positions == []
+
+
+def test_waveform_seek_reloads_source_after_sequence_playback(qtbot, monkeypatch):
+    from app.models.project import Project
+
+    window = _window_with_duration(qtbot, monkeypatch)
+    project = Project(name="demo", original_audio_path="C:/x/source.wav")
+    monkeypatch.setattr(type(window._video_panel), "project", property(lambda self: project))
+    window._playback_offset = 12.5  # une séquence était en cours de lecture
+
+    sources_loaded = []
+    monkeypatch.setattr(window._transport_controls, "set_source", sources_loaded.append)
+    seeked = []
+    monkeypatch.setattr(window._transport_controls, "set_position_seconds", seeked.append)
+
+    window._on_waveform_seek_requested(4.0)
+
+    assert sources_loaded == ["C:/x/source.wav"]
+    assert seeked == [4.0]
+    assert window._playback_offset == 0.0
+
+
+def test_waveform_seek_does_not_reload_when_already_on_source(qtbot, monkeypatch):
+    window = _window_with_duration(qtbot, monkeypatch)
+    window._playback_offset = 0.0
+
+    sources_loaded = []
+    monkeypatch.setattr(window._transport_controls, "set_source", sources_loaded.append)
+    seeked = []
+    monkeypatch.setattr(window._transport_controls, "set_position_seconds", seeked.append)
+
+    window._on_waveform_seek_requested(4.0)
+
+    assert sources_loaded == []
+    assert seeked == [4.0]
 
 
 def test_double_click_on_waveform_region_plays_the_sequence(qtbot, monkeypatch):

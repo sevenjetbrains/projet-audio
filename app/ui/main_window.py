@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
         central.setLayout(layout)
         self.setCentralWidget(central)
 
+        self._playback_offset: float | None = 0.0
+
         self._dirty = False
         self._project_summary_label = QLabel()
         self.statusBar().addPermanentWidget(self._project_summary_label)
@@ -262,8 +264,8 @@ class MainWindow(QMainWindow):
 
     def _wire_signals(self) -> None:
         self._video_panel.audio_ready.connect(self._on_audio_ready)
-        self._waveform_widget.seek_requested.connect(self._transport_controls.set_position_seconds)
-        self._transport_controls.position_changed.connect(self._waveform_widget.set_playhead)
+        self._waveform_widget.seek_requested.connect(self._on_waveform_seek_requested)
+        self._transport_controls.position_changed.connect(self._on_playback_position_changed)
         self._waveform_widget.selection_changed.connect(self._on_selection_changed)
         self._waveform_widget.region_clicked.connect(self._sequence_list.select_sequence)
         self._waveform_widget.region_double_clicked.connect(self._sequence_list.play_sequence)
@@ -315,6 +317,7 @@ class MainWindow(QMainWindow):
     def _on_audio_ready(self, wav_path: str, duration: float) -> None:
         self._waveform_widget.load(wav_path, duration)
         self._transport_controls.set_source(wav_path)
+        self._playback_offset = 0.0
         self._sequence_list.set_project(self._video_panel.project)
         self._audio_processing_panel.set_project(self._video_panel.project)
         self._update_waveform_regions()
@@ -387,8 +390,22 @@ class MainWindow(QMainWindow):
         plural = "s" if count > 1 else ""
         self._project_summary_label.setText(f"{count} séquence{plural} — durée fusionnée : {format_timecode(total)}")
 
-    def _on_sequence_play_requested(self, name: str, audio_path: str) -> None:
+    def _on_sequence_play_requested(self, name: str, audio_path: str, source_start: float) -> None:
+        self._playback_offset = source_start
         self._transport_controls.load_and_play(audio_path)
+
+    def _on_playback_position_changed(self, seconds: float) -> None:
+        if self._playback_offset is not None:
+            self._waveform_widget.set_playhead(self._playback_offset + seconds)
+
+    def _on_waveform_seek_requested(self, seconds: float) -> None:
+        """Un clic sur la waveform (piste source) doit reprendre la lecture de la source,
+        même si une séquence ou le résultat fusionné était en cours de lecture."""
+        project = self._video_panel.project
+        if self._playback_offset != 0.0 and project is not None and project.original_audio_path:
+            self._transport_controls.set_source(project.original_audio_path)
+            self._playback_offset = 0.0
+        self._transport_controls.set_position_seconds(seconds)
 
     def _on_sequence_selected(self, sequence_id: str) -> None:
         self._audio_processing_panel.set_sequence(self._sequence_list.get_sequence(sequence_id))
@@ -448,6 +465,9 @@ class MainWindow(QMainWindow):
         except ExportError as exc:
             QMessageBox.warning(self, "AudioCut Studio", str(exc))
             return
+        # Le résultat fusionné n'a pas de correspondance simple avec la timeline source
+        # (ordre différent, crossfades) : on n'y déplace pas la tête de lecture.
+        self._playback_offset = None
         self._transport_controls.load_and_play(final_wav)
 
     def _on_export_clicked(self) -> None:

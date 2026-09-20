@@ -113,8 +113,9 @@ def test_play_requested_emits_signal(widget_with_project, qtbot):
     with qtbot.waitSignal(widget.play_requested, timeout=1000) as blocker:
         widget._on_play_clicked()
 
-    name, audio_path = blocker.args
+    name, audio_path, source_start = blocker.args
     assert Path(audio_path).exists()
+    assert source_start == 0.0
 
 
 def test_reorder_updates_project_order(widget_with_project):
@@ -216,11 +217,11 @@ def test_play_sequence_selects_and_requests_playback(qtbot, widget_with_project)
     _add_three(widget)
     target = project.sequences[2]
     played = []
-    widget.play_requested.connect(lambda name, path: played.append((name, path)))
+    widget.play_requested.connect(lambda name, path, start: played.append((name, path, start)))
 
     widget.play_sequence(target.id)
 
-    assert played == [(target.name, target.effective_audio_path)]
+    assert played == [(target.name, target.effective_audio_path, target.source_start)]
     assert widget.current_sequence().id == target.id
 
 
@@ -228,7 +229,7 @@ def test_double_click_on_list_item_plays_it(qtbot, widget_with_project):
     widget, project = widget_with_project
     _add_three(widget)
     played = []
-    widget.play_requested.connect(lambda name, path: played.append(name))
+    widget.play_requested.connect(lambda name, path, start: played.append(name))
 
     widget._list_widget.itemDoubleClicked.emit(widget._list_widget.item(1))
 

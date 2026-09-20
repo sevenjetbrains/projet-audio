@@ -27,7 +27,7 @@ from app.utils.time_utils import format_timecode
 
 
 class SequenceListWidget(QWidget):
-    play_requested = Signal(str, str)
+    play_requested = Signal(str, str, float)
     sequences_changed = Signal()
     sequence_selected = Signal(str)
     selection_changed = Signal(list)
@@ -196,7 +196,7 @@ class SequenceListWidget(QWidget):
         self.select_sequence(sequence_id)
         sequence = self.get_sequence(sequence_id)
         if sequence is not None:
-            self.play_requested.emit(sequence.name, sequence.effective_audio_path)
+            self.play_requested.emit(sequence.name, sequence.effective_audio_path, sequence.source_start)
 
     def _on_item_double_clicked(self, item) -> None:
         self.play_sequence(item.data(Qt.ItemDataRole.UserRole))
@@ -205,7 +205,7 @@ class SequenceListWidget(QWidget):
         sequence = self.current_sequence()
         if sequence is None:
             return
-        self.play_requested.emit(sequence.name, sequence.effective_audio_path)
+        self.play_requested.emit(sequence.name, sequence.effective_audio_path, sequence.source_start)
 
     def _on_rename_clicked(self) -> None:
         sequence = self.current_sequence()
