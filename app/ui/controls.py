@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -62,26 +63,32 @@ class ToggleSwitch(QAbstractButton):
 
 
 class SegmentedControl(QWidget):
-    """Suite de boutons exclusifs (« Aucune · Faible · Moyenne · Forte »), le choix en accent."""
+    """Suite de boutons exclusifs (« Aucune · Faible · Moyenne · Forte »), le choix en accent.
+
+    `columns` répartit les options sur plusieurs lignes (les six formats d'export tiennent
+    en 3 × 2) ; par défaut elles restent toutes sur une seule ligne."""
 
     changed = Signal(str)
 
-    def __init__(self, options: tuple[str, ...], parent: QWidget | None = None) -> None:
+    def __init__(self, options: tuple[str, ...], columns: int = 0, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._options = options
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
 
-        layout = QHBoxLayout(self)
+        layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        per_row = columns or len(options)
         for index, option in enumerate(options):
             button = QPushButton(option)
             button.setCheckable(True)
             button.setProperty("segment", "true")
             button.setMinimumHeight(40)
             self._group.addButton(button, index)
-            layout.addWidget(button, 1)
+            layout.addWidget(button, index // per_row, index % per_row)
+        for column in range(per_row):
+            layout.setColumnStretch(column, 1)
         self._group.idToggled.connect(self._on_toggled)
         self.set_value(options[0])
 

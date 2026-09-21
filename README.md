@@ -52,7 +52,8 @@ python -m app.main
 - Suppression des silences et fusion avec fondu enchaîné (crossfade)
 - Normalisation optionnelle du volume à l'export (loudness LUFS)
 - Option « ouvrir le dossier » à la fin de l'export
-- Export de la fusion (ou d'un fichier par séquence) en WAV, MP3, FLAC, M4A (AAC), OGG ou Opus
+- Fenêtre « Fusion et export » en cartes : mode de fusion (bout à bout ou fondu enchaîné, dont l'effet sur la durée est chiffré), format et qualité en WAV, MP3, FLAC, M4A (AAC), OGG ou Opus, fréquence d'échantillonnage, aperçu écoutable du résultat fusionné avec ses jonctions marquées, un seul fichier ou un par séquence, destination proposée à côté de la vidéo source
+- Export interruptible : la progression nomme la séquence en cours et estime le temps restant ; l'interrompre laisse le projet intact
 - Sauvegarde/chargement de projet (.acsproject), annuler/rétablir (Ctrl+Z / Ctrl+Y) y compris pour les traitements audio, menu Projets récents, sauvegarde automatique toutes les 2 minutes avec récupération après plantage
 
 ## Tests

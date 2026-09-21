@@ -76,3 +76,70 @@ class BeforeAfterStrip(QWidget):
             x = min(max(self._progress, 0.0), 1.0) * self.width()
             painter.fillRect(QRectF(x - 1, 0, 2, self.height()), QColor(self._theme.playhead_color))
         painter.end()
+
+
+class MergedWaveStrip(QWidget):
+    """Forme d'onde du résultat fusionné, avec les jonctions entre séquences en clair.
+
+    Voir où une séquence finit et où la suivante commence est ce qui permet de juger un
+    fondu enchaîné : les jonctions sont donc peintes dans une teinte plus claire que le reste.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setMinimumHeight(64)
+        self._peaks: np.ndarray | None = None
+        self._junctions: list[float] = []
+        self._progress: float | None = None
+        self._theme: Theme = get_theme("")
+
+    def set_theme(self, theme: Theme) -> None:
+        self._theme = theme
+        self.update()
+
+    def set_wave(self, peaks: np.ndarray | None, junctions: list[float] | None = None) -> None:
+        """`junctions` : positions des raccords, en fraction de la durée totale (0 à 1)."""
+        self._peaks = peaks
+        self._junctions = list(junctions or [])
+        self.update()
+
+    def set_progress(self, progress: float | None) -> None:
+        self._progress = progress
+        self.update()
+
+    @property
+    def has_wave(self) -> bool:
+        return self._peaks is not None
+
+    def clear(self) -> None:
+        self.set_wave(None, [])
+        self.set_progress(None)
+
+    def _is_junction(self, index: int, count: int) -> bool:
+        """Vrai si la barre `index` tombe sur un raccord (à une barre près, pour rester visible)."""
+        return any(abs(index - junction * count) <= 1.0 for junction in self._junctions)
+
+    def paintEvent(self, _event) -> None:
+        if self._peaks is None or len(self._peaks) == 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        accent = QColor(self._theme.color("accent"))
+        junction_colour = QColor(self._theme.color("text_on_accent"))
+        middle = self.height() / 2
+        count = len(self._peaks)
+        bar_width = max(self.width() / count * 0.62, 1.0)
+
+        for index in range(count):
+            amplitude = float(max(abs(self._peaks[index][0]), abs(self._peaks[index][1])))
+            height = max(amplitude * (self.height() - 6), _MIN_BAR_HEIGHT)
+            x = index * self.width() / count
+            painter.setBrush(junction_colour if self._is_junction(index, count) else accent)
+            painter.drawRoundedRect(QRectF(x, middle - height / 2, bar_width, height), 1, 1)
+
+        if self._progress is not None:
+            x = min(max(self._progress, 0.0), 1.0) * self.width()
+            painter.fillRect(QRectF(x - 1, 0, 2, self.height()), QColor(self._theme.playhead_color))
+        painter.end()

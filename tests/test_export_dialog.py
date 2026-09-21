@@ -31,7 +31,7 @@ def test_export_dialog_instantiates(qtbot, project_with_sequence):
     dialog = ExportDialog(project, ffmpeg_service)
     qtbot.addWidget(dialog)
 
-    assert dialog._format_combo.count() == 6
+    assert len(dialog._format_segments._options) == 6
 
 
 def test_export_dialog_runs_export_to_wav(qtbot, project_with_sequence, tmp_path, monkeypatch):
@@ -64,7 +64,7 @@ def test_export_dialog_separate_files(qtbot, project_with_sequence, tmp_path, mo
     dialog = ExportDialog(project, ffmpeg_service)
     qtbot.addWidget(dialog)
 
-    dialog._separate_cb.setChecked(True)
+    dialog._separate_radio.setChecked(True)
     dialog._path_edit.setText(str(tmp_path / "seqs"))
     dialog._on_export_clicked()
 
@@ -82,10 +82,11 @@ def test_export_dialog_suggests_path_next_to_video(qtbot, project_with_sequence)
 
     assert Path(dialog._path_edit.text()) == video.parent / f"{video.stem}_audio.wav"
 
-    dialog._format_combo.setCurrentText("MP3")
+    dialog._format_segments.set_value("MP3")
+    dialog._on_format_changed("MP3")
     assert Path(dialog._path_edit.text()) == video.parent / f"{video.stem}_audio.mp3"
 
-    dialog._separate_cb.setChecked(True)
+    dialog._separate_radio.setChecked(True)
     assert Path(dialog._path_edit.text()) == video.parent / f"{video.stem}_sequences"
 
 
@@ -95,7 +96,8 @@ def test_export_dialog_keeps_user_typed_path_on_format_change(qtbot, project_wit
     qtbot.addWidget(dialog)
 
     dialog._path_edit.setText("C:/mon/choix.wav")
-    dialog._format_combo.setCurrentText("FLAC")
+    dialog._format_segments.set_value("FLAC")
+    dialog._on_format_changed("FLAC")
 
     assert dialog._path_edit.text() == "C:/mon/choix.wav"
 
@@ -148,7 +150,7 @@ def test_separate_export_opens_the_destination_folder_itself(qtbot, project_with
     project, ffmpeg_service = project_with_sequence
     dialog = ExportDialog(project, ffmpeg_service)
     qtbot.addWidget(dialog)
-    dialog._separate_cb.setChecked(True)
+    dialog._separate_radio.setChecked(True)
     target = tmp_path / "seqs"
     dialog._path_edit.setText(str(target))
     dialog._open_folder_cb.setChecked(True)

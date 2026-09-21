@@ -1223,8 +1223,17 @@ class MainWindow(QMainWindow):
         if project is None or not project.sequences:
             QMessageBox.warning(self, "AudioCut Studio", "Créez au moins une séquence avant d'exporter.")
             return
+        crossfade_before = project.crossfade_duration
         dialog = ExportDialog(project, self._video_panel.ffmpeg_service, self)
         dialog.exec()
+        if project.crossfade_duration != crossfade_before:
+            # La fenêtre d'export règle aussi le fondu enchaîné : le champ de la fenêtre
+            # principale et la durée estimée doivent refléter ce choix.
+            self._crossfade_spin.blockSignals(True)
+            self._crossfade_spin.setValue(project.crossfade_duration)
+            self._crossfade_spin.blockSignals(False)
+            self._update_project_summary()
+            self._mark_dirty()
 
     # --- Projets --------------------------------------------------------------
 

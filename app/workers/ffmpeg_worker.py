@@ -89,3 +89,45 @@ class FFmpegTaskWorker(QThread):
             return
 
         self.succeeded.emit(result)
+
+
+class ExportWorker(QThread):
+    """Export en tâche de fond : progression, étape en cours, et arrêt à la demande.
+
+    La tâche reçoit `(report, announce, should_cancel)` : la progression (0..1), le nom de
+    l'étape à afficher, et le drapeau d'annulation qu'elle consulte entre deux opérations.
+    Un export abandonné émet `cancelled` et non `failed` : ce n'est pas une panne.
+    """
+
+    progress = Signal(int)
+    stage = Signal(str)
+    succeeded = Signal(object)
+    failed = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, task: Callable[..., Any], parent=None) -> None:
+        super().__init__(parent)
+        self._task = task
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _report(self, fraction: float) -> None:
+        self.progress.emit(int(max(0.0, min(1.0, fraction)) * 100))
+
+    def run(self) -> None:
+        try:
+            result = self._task(self._report, self.stage.emit, lambda: self._cancelled)
+        except FFmpegCancelled:
+            self.cancelled.emit()
+            return
+        except (ExportError, ProjectLoadError) as exc:
+            self.failed.emit(str(exc))
+            return
+        except FFmpegExecutionError as exc:
+            logger.error("Échec d'un export : %s", exc)
+            self.failed.emit("Erreur lors de l'export. Consultez les logs pour plus de détails.")
+            return
+
+        self.succeeded.emit(result)

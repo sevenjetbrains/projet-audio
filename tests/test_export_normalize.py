@@ -89,8 +89,9 @@ def test_separate_export_with_normalization(quiet_project, tmp_path):
 def test_dialog_passes_normalization_setting_to_export(qtbot, quiet_project, monkeypatch, tmp_path):
     project, ffmpeg_service = quiet_project
     calls = []
+    # La fenêtre référence la fonction directement : c'est là qu'il faut la remplacer.
     monkeypatch.setattr(
-        "app.services.export_service.export_project",
+        "app.ui.export_dialog.export_project",
         lambda *args, **kwargs: calls.append((args[3:], kwargs)) or None,
     )
     from PySide6.QtWidgets import QMessageBox

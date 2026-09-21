@@ -238,10 +238,16 @@ class FFmpegService:
         out_wav_path: str,
         filter_chain: str,
         on_progress: Callable[[float], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> None:
         """Applique une chaîne de filtres audio FFmpeg (`-af`), sans toucher au fichier source."""
         cmd = [self._ffmpeg_path, "-y", "-i", source_wav_path, "-af", filter_chain, out_wav_path]
-        self._run(cmd, total_duration=wav_duration(source_wav_path), on_progress=on_progress)
+        self._run(
+            cmd,
+            total_duration=wav_duration(source_wav_path),
+            on_progress=on_progress,
+            should_cancel=should_cancel,
+        )
 
     def export_audio(
         self,
@@ -250,8 +256,13 @@ class FFmpegService:
         fmt: str,
         quality: str,
         on_progress: Callable[[float], None] | None = None,
+        sample_rate: int | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> None:
-        """Réencode un WAV source vers le format/qualité d'export choisis par l'utilisateur."""
+        """Réencode un WAV source vers le format/qualité d'export choisis par l'utilisateur.
+
+        `sample_rate` rééchantillonne la sortie (48 000 Hz par exemple) ; sans lui, la fréquence
+        de la source est conservée. `should_cancel` interrompt l'encodage en cours."""
         fmt = fmt.lower()
 
         if fmt == "wav":
@@ -287,7 +298,14 @@ class FFmpegService:
         else:
             raise ValueError(f"Format d'export non supporté : {fmt}")
 
-        self._run(cmd, total_duration=wav_duration(source_wav_path), on_progress=on_progress)
+        if sample_rate:
+            cmd[-1:-1] = ["-ar", str(sample_rate)]  # avant le fichier de sortie, comme toute option d'encodage
+        self._run(
+            cmd,
+            total_duration=wav_duration(source_wav_path),
+            on_progress=on_progress,
+            should_cancel=should_cancel,
+        )
 
     def create_preview_proxy(
         self,
