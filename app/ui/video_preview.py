@@ -3,10 +3,12 @@
 from datetime import datetime
 from pathlib import Path
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QPoint, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import QLabel, QStackedLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QVBoxLayout, QWidget
 
 from app.config.settings import TEMP_DIR
 from app.ui.fullscreen_controls import FullscreenControls
@@ -14,6 +16,9 @@ from app.ui.fullscreen_controls import FullscreenControls
 _PLACEHOLDER = "▶\nimage de la vidéo"
 _CONTROLS_IDLE_MS = 2500  # sans mouvement de souris, la barre de contrôle se masque
 _KEY_SKIP_SECONDS = 5.0
+_DEFAULT_ASPECT = 16 / 9
+_MIN_WIDTH, _MIN_HEIGHT = 320, 180
+_MAX_HEIGHT = 420  # une vidéo verticale ne doit pas rendre le panneau démesurément haut
 _CURSOR_POLL_MS = 100  # fréquence de détection d'un mouvement de souris (voir _FullscreenWindow._poll_cursor)
 
 
@@ -136,12 +141,41 @@ class _FullscreenWindow(QWidget):
         self.exit_requested.emit()
 
 
+class _AspectStackedLayout(QStackedLayout):
+    """Pile dont la hauteur découle de la largeur et du format de la vidéo (largeur ÷ format).
+
+    Sans cela, la taille demandée au reste de la fenêtre était la taille naturelle du lecteur vidéo (celle de la
+    vidéo, 640×360…), qui n'entrait en jeu qu'à certains moments : après un passage en plein écran, l'aperçu doublait
+    de hauteur et ne revenait jamais à sa taille de départ. Ici la taille ne dépend que de la largeur disponible.
+    """
+
+    def __init__(self, aspect: Callable[[], float]) -> None:
+        super().__init__()
+        self._aspect = aspect
+
+    def _height_for(self, width: int) -> int:
+        return min(max(round(width / self._aspect()), _MIN_HEIGHT), _MAX_HEIGHT)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._height_for(width)
+
+    def sizeHint(self) -> QSize:
+        return QSize(_MIN_WIDTH, self._height_for(_MIN_WIDTH))
+
+    def minimumSize(self) -> QSize:
+        return QSize(_MIN_WIDTH, _MIN_HEIGHT)
+
+
 class VideoPreview(QWidget):
     """Sortie vidéo du lecteur : permet de visualiser la vidéo pour repérer les passages à extraire."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumSize(320, 180)
+        self.setMinimumSize(_MIN_WIDTH, _MIN_HEIGHT)
+        self._aspect = _DEFAULT_ASPECT
         self._snapshot_dir = TEMP_DIR
         self._fullscreen_window: _FullscreenWindow | None = None
         # Créée une fois, reliée au lecteur par VideoPlayerPanel ; posée dans la fenêtre plein écran quand il y en a une.
@@ -149,15 +183,27 @@ class VideoPreview(QWidget):
         self._fullscreen_controls.hide()
 
         self._video_widget = QVideoWidget()
+        # Sa taille naturelle (celle de la vidéo) ne doit jamais dicter celle de l'aperçu : voir _AspectStackedLayout.
+        self._video_widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self._placeholder = QLabel(_PLACEHOLDER)
         self._placeholder.setObjectName("hintLabel")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._stack = QStackedLayout()
+        self._stack = _AspectStackedLayout(lambda: self._aspect)
         self._stack.setContentsMargins(0, 0, 0, 0)
         self._stack.addWidget(self._placeholder)
         self._stack.addWidget(self._video_widget)
         self.setLayout(self._stack)
+
+    def set_aspect_ratio(self, width: int, height: int) -> None:
+        """Format de la vidéo affichée (largeur, hauteur en pixels) ; 16:9 si inconnu."""
+        self._aspect = width / height if width > 0 and height > 0 else _DEFAULT_ASPECT
+        self._stack.invalidate()
+        self.updateGeometry()
+
+    @property
+    def aspect_ratio(self) -> float:
+        return self._aspect
 
     @property
     def video_widget(self) -> QVideoWidget:

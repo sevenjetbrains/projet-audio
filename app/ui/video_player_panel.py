@@ -144,9 +144,11 @@ class VideoPlayerPanel(QWidget):
         """Renseigne la vignette de format affichée sur l'image (résolution de la source)."""
         if media_info is None or not media_info.resolution:
             self._format_badge.setText("—")
+            self._preview.set_aspect_ratio(0, 0)
             return
         width, height = media_info.resolution
         self._format_badge.setText(f"{width} × {height}")
+        self._preview.set_aspect_ratio(width, height)
 
     def set_now_playing(self, name: str) -> None:
         """Vignette indiquant ce que l'aperçu montre : « source » ou le nom d'une séquence."""
