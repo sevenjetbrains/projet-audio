@@ -1,4 +1,8 @@
-"""Aperçu des passages détectés par le découpage automatique : on coche ceux à transformer en séquences."""
+"""Aperçu des passages à transformer en séquences : on coche ceux à garder.
+
+Sert au découpage automatique (passages entre silences) comme au découpage aux repères.
+Une entrée est `(début, fin)` ou `(début, fin, nom)` : dès qu'un nom est donné, une colonne
+« Nom » s'ajoute pour montrer comment les séquences s'appelleront."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -16,31 +20,36 @@ from PySide6.QtWidgets import (
 from app.utils.time_utils import format_timecode
 
 _COLUMNS = ("", "N°", "Début", "Fin", "Durée")
+_NAME_COLUMN = "Nom"
 
 
 class SplitPreviewDialog(QDialog):
-    def __init__(self, ranges: list[tuple[float, float]], parent=None) -> None:
+    def __init__(self, ranges: list[tuple], parent=None, title: str = "Passages détectés") -> None:
         super().__init__(parent)
-        self.setWindowTitle("Passages détectés")
+        self.setWindowTitle(title)
         self.resize(520, 420)
         self._ranges = list(ranges)
 
-        self._table = QTableWidget(len(self._ranges), len(_COLUMNS))
-        self._table.setHorizontalHeaderLabels(list(_COLUMNS))
+        named = any(len(entry) > 2 and entry[2] for entry in self._ranges)
+        columns = (*_COLUMNS, _NAME_COLUMN) if named else _COLUMNS
+        self._table = QTableWidget(len(self._ranges), len(columns))
+        self._table.setHorizontalHeaderLabels(list(columns))
         self._table.verticalHeader().hide()
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setColumnWidth(0, 32)
         self._table.setColumnWidth(1, 44)
-        for row, (start, end) in enumerate(self._ranges):
+        for row, entry in enumerate(self._ranges):
+            start, end = entry[0], entry[1]
             check = QTableWidgetItem()
             check.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
             check.setCheckState(Qt.CheckState.Checked)
             self._table.setItem(row, 0, check)
-            for column, text in enumerate(
-                (str(row + 1), format_timecode(start), format_timecode(end), format_timecode(end - start)), start=1
-            ):
+            cells = [str(row + 1), format_timecode(start), format_timecode(end), format_timecode(end - start)]
+            if named:
+                cells.append(entry[2] if len(entry) > 2 else "")
+            for column, text in enumerate(cells, start=1):
                 self._table.setItem(row, column, QTableWidgetItem(text))
         self._table.itemChanged.connect(lambda _item: self._update_summary())
 
@@ -71,7 +80,7 @@ class SplitPreviewDialog(QDialog):
         for row in range(self._table.rowCount()):
             self._table.item(row, 0).setCheckState(state)
 
-    def selected_ranges(self) -> list[tuple[float, float]]:
+    def selected_ranges(self) -> list[tuple]:
         """Passages cochés, dans l'ordre chronologique."""
         return [
             self._ranges[row]
@@ -81,6 +90,6 @@ class SplitPreviewDialog(QDialog):
 
     def _update_summary(self) -> None:
         selected = self.selected_ranges()
-        total = sum(end - start for start, end in selected)
+        total = sum(entry[1] - entry[0] for entry in selected)
         self._summary.setText(f"{len(selected)} sur {len(self._ranges)} sélectionnés — durée totale {format_timecode(total)}")
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(bool(selected))

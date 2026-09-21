@@ -173,6 +173,9 @@ class MainWindow(QMainWindow):
         self._auto_split_action = self._action(
             "Découper automatiquement selon les silences…", None, self._on_auto_split_clicked, "Découpage auto"
         )
+        self._markers_to_sequences_action = self._action(
+            "Créer les séquences depuis les repères…", None, self._on_create_sequences_from_markers
+        )
         self._merge_action = self._action("Fusionner et prévisualiser", None, self._on_merge_preview_clicked)
         self._processing_action = self._action(
             "Appliquer un traitement…", None, self._open_processing_dialog, "Traitement"
@@ -309,6 +312,7 @@ class MainWindow(QMainWindow):
 
         sequences_menu = menu_bar.addMenu("Séquences")
         sequences_menu.addAction(self._auto_split_action)
+        sequences_menu.addAction(self._markers_to_sequences_action)
         sequences_menu.addAction(self._merge_action)
 
         processing_menu = menu_bar.addMenu("Traitement")
@@ -940,6 +944,48 @@ class MainWindow(QMainWindow):
             lambda: marker_service.rename_marker(project, marker_id, old_label),
         )
 
+    def _on_create_sequences_from_markers(self) -> None:
+        """Transforme en séquences les tranches délimitées par les repères, après validation.
+
+        Le même aperçu que le découpage automatique sert à décocher les tranches dont on ne
+        veut pas : poser un repère au début et à la fin de chaque passage intéressant laisse
+        alors les tranches inutiles de côté en deux clics."""
+        project = self._require_project("Importez une vidéo avant de découper aux repères.")
+        if project is None:
+            return
+        if not project.markers:
+            QMessageBox.information(
+                self, "AudioCut Studio", "Posez au moins un repère (touche M) pour découper l'audio à cet endroit."
+            )
+            return
+        slices = marker_service.intervals(project, self._source_duration)
+        if not slices:
+            QMessageBox.information(self, "AudioCut Studio", "Les repères ne délimitent aucune tranche exploitable.")
+            return
+
+        preview = SplitPreviewDialog(slices, self, title="Tranches délimitées par les repères")
+        if preview.exec() != SplitPreviewDialog.DialogCode.Accepted:
+            return
+        chosen = preview.selected_ranges()
+        if not chosen:
+            return
+
+        service = self._video_panel.ffmpeg_service
+        ranges = [(entry[0], entry[1]) for entry in chosen]
+        names = [entry[2] if len(entry) > 2 else "" for entry in chosen]
+        progress = QProgressDialog("Découpage des séquences…", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.show()
+        self._split_worker = FFmpegTaskWorker(
+            lambda: create_sequences_from_ranges(project, service, ranges, names)
+        )
+        self._split_worker.succeeded.connect(
+            lambda sequences: self._on_auto_split_done(sequences, progress, origin="depuis les repères")
+        )
+        self._split_worker.failed.connect(lambda message: self._on_auto_split_failed(message, progress))
+        self._split_worker.start()
+
     # --- Séquences -----------------------------------------------------------
 
     def _on_crossfade_changed(self, value: float) -> None:
@@ -1080,12 +1126,12 @@ class MainWindow(QMainWindow):
         self._split_worker.failed.connect(lambda message: self._on_auto_split_failed(message, cutting))
         self._split_worker.start()
 
-    def _on_auto_split_done(self, sequences: list, progress: QProgressDialog) -> None:
+    def _on_auto_split_done(self, sequences: list, progress: QProgressDialog, origin: str = "automatiquement") -> None:
         progress.close()
         if not sequences:
             return
         self._sequence_list.add_sequences(sequences)
-        self.statusBar().showMessage(f"{len(sequences)} séquences créées automatiquement.", 5000)
+        self.statusBar().showMessage(f"{len(sequences)} séquences créées {origin}.", 5000)
 
     def _on_auto_split_failed(self, message: str, progress: QProgressDialog) -> None:
         progress.close()

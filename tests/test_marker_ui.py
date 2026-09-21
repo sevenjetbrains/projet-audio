@@ -404,3 +404,144 @@ def test_marker_signals_for_an_unknown_id_are_ignored(window_with_project, monke
     window._rename_marker("inconnu")
 
     assert window._sequence_list.undo_stack.count() == 0
+
+
+# --- Créer les séquences depuis les repères ----------------------------------
+
+
+def test_preview_dialog_shows_a_name_column_only_when_names_are_given(qtbot):
+    from app.ui.split_preview_dialog import SplitPreviewDialog
+
+    plain = SplitPreviewDialog([(0.0, 2.0), (2.0, 4.0)])
+    qtbot.addWidget(plain)
+    named = SplitPreviewDialog([(0.0, 2.0, ""), (2.0, 4.0, "Chapitre")])
+    qtbot.addWidget(named)
+
+    headers = lambda d: [d._table.horizontalHeaderItem(c).text() for c in range(d._table.columnCount())]
+    assert "Nom" not in headers(plain)
+    assert headers(named)[-1] == "Nom"
+    assert named._table.item(1, 5).text() == "Chapitre"
+
+
+def test_preview_dialog_returns_named_entries_untouched(qtbot):
+    from app.ui.split_preview_dialog import SplitPreviewDialog
+    from PySide6.QtCore import Qt
+
+    dialog = SplitPreviewDialog([(0.0, 2.0, "A"), (2.0, 4.0, "B")])
+    qtbot.addWidget(dialog)
+    dialog._table.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
+
+    assert dialog.selected_ranges() == [(2.0, 4.0, "B")]
+    assert "durée totale" in dialog._summary.text()
+
+
+class _Progress:
+    def close(self):
+        pass
+
+
+def _accepting_preview(monkeypatch, keep=None):
+    """Remplace l'aperçu par un faux qui accepte, et retourne la liste des tranches proposées."""
+    from PySide6.QtWidgets import QDialog
+
+    seen = []
+
+    class FakePreview:
+        DialogCode = QDialog.DialogCode
+
+        def __init__(self, given, parent=None, title=""):
+            seen.append(list(given))
+            self._given = list(given)
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def selected_ranges(self):
+            return self._given if keep is None else keep
+
+    monkeypatch.setattr("app.ui.main_window.SplitPreviewDialog", FakePreview)
+    return seen
+
+
+def test_creating_sequences_from_markers_cuts_every_slice_with_its_name(qtbot, monkeypatch, window_with_project):
+    window, project = window_with_project
+    for position, name in ((2.0, "A"), (6.0, "B")):
+        _place_playhead(window, position)
+        window._add_marker_at_playhead()
+        marker_service.rename_marker(project, project.markers[-1].id, name)
+    proposed = _accepting_preview(monkeypatch)
+    created = []
+    monkeypatch.setattr(
+        "app.ui.main_window.create_sequences_from_ranges",
+        lambda project, service, ranges, names: created.append((ranges, names)) or [],
+    )
+
+    window._on_create_sequences_from_markers()
+    qtbot.waitUntil(lambda: window._split_worker.isFinished(), timeout=3000)
+
+    assert proposed == [[(0.0, 2.0, ""), (2.0, 6.0, "A"), (6.0, 10.0, "B")]]
+    assert created == [([(0.0, 2.0), (2.0, 6.0), (6.0, 10.0)], ["", "A", "B"])]
+
+
+def test_creating_sequences_from_markers_honours_the_unchecked_slices(qtbot, monkeypatch, window_with_project):
+    window, _project = window_with_project
+    _place_playhead(window, 4.0)
+    window._add_marker_at_playhead()
+    _accepting_preview(monkeypatch, keep=[(4.0, 10.0, "Repère 1")])
+    created = []
+    monkeypatch.setattr(
+        "app.ui.main_window.create_sequences_from_ranges",
+        lambda project, service, ranges, names: created.append((ranges, names)) or [],
+    )
+
+    window._on_create_sequences_from_markers()
+    qtbot.waitUntil(lambda: window._split_worker.isFinished(), timeout=3000)
+
+    assert created == [([(4.0, 10.0)], ["Repère 1"])]
+
+
+def test_creating_sequences_without_any_marker_explains_instead_of_cutting(monkeypatch, window_with_project):
+    from PySide6.QtWidgets import QMessageBox
+
+    window, _project = window_with_project
+    shown = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    called = []
+    monkeypatch.setattr("app.ui.main_window.create_sequences_from_ranges", lambda *a: called.append(a) or [])
+
+    window._on_create_sequences_from_markers()
+
+    assert called == []
+    assert "repère" in shown[0]
+
+
+def test_cancelling_the_preview_creates_nothing(monkeypatch, window_with_project):
+    from PySide6.QtWidgets import QDialog
+
+    window, _project = window_with_project
+    _place_playhead(window, 4.0)
+    window._add_marker_at_playhead()
+
+    class FakePreview:
+        DialogCode = QDialog.DialogCode
+
+        def __init__(self, given, parent=None, title=""):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr("app.ui.main_window.SplitPreviewDialog", FakePreview)
+    called = []
+    monkeypatch.setattr("app.ui.main_window.create_sequences_from_ranges", lambda *a: called.append(a) or [])
+
+    window._on_create_sequences_from_markers()
+
+    assert called == []
+
+
+def test_the_action_sits_in_the_sequences_menu(window_with_project):
+    window, _project = window_with_project
+    menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "Séquences")
+
+    assert any("repères" in action.text() for action in menu.actions())

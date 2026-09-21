@@ -224,12 +224,25 @@ def detect_speech_ranges(
 
 
 def create_sequences_from_ranges(
-    project: Project, ffmpeg_service: FFmpegService, ranges: list[tuple[float, float]]
+    project: Project,
+    ffmpeg_service: FFmpegService,
+    ranges: list[tuple[float, float]],
+    names: list[str] | None = None,
 ) -> list[Sequence]:
-    """Découpe l'audio source selon les segments donnés (non rattachées au projet), nommées à la suite."""
+    """Découpe l'audio source selon les segments donnés (non rattachées au projet).
+
+    `names` nomme les segments un à un (un nom vide ou absent retombe sur la numérotation
+    à la suite) : le découpage aux repères reprend ainsi le nom du repère qui ouvre chaque
+    tranche, au lieu de « Séquence 7 »."""
     first_number = len(project.sequences) + 1
     return [
-        create_sequence(project, ffmpeg_service, start, end, name=f"Séquence {first_number + index}")
+        create_sequence(
+            project,
+            ffmpeg_service,
+            start,
+            end,
+            name=(names[index] if names and index < len(names) else "") or f"Séquence {first_number + index}",
+        )
         for index, (start, end) in enumerate(ranges)
     ]
 

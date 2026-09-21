@@ -7,6 +7,7 @@ La liste est maintenue triée par position : c'est l'ordre d'affichage comme cel
 de la navigation d'un repère à l'autre.
 """
 
+from typing import NamedTuple
 from uuid import uuid4
 
 from app.models.marker import Marker
@@ -14,6 +15,14 @@ from app.models.project import Project
 
 # Deux repères plus proches que cela seraient confondus à l'écran comme à l'oreille.
 MIN_GAP_SECONDS = 0.05
+
+
+class MarkerInterval(NamedTuple):
+    """Tranche d'audio délimitée par deux repères ; `label` est celui du repère qui l'ouvre."""
+
+    start: float
+    end: float
+    label: str = ""
 
 
 def create_marker(project: Project, position: float, label: str | None = None) -> Marker:
@@ -95,3 +104,21 @@ def surrounding_range(project: Project, position: float, duration: float) -> tup
     if end - start < MIN_GAP_SECONDS:
         return None
     return start, end
+
+
+def intervals(project: Project, duration: float) -> list[MarkerInterval]:
+    """Découpe l'audio à chaque repère : [0, r1], [r1, r2], …, [rN, durée].
+
+    Chaque tranche porte le nom du repère qui l'ouvre — celle qui précède le premier
+    repère n'en a pas. Les tranches trop courtes (deux repères collés, un repère sur un
+    bord) sont écartées : elles ne donneraient pas une séquence exploitable.
+    """
+    positions = [marker.position for marker in sorted(project.markers, key=lambda m: m.position)]
+    labels = [marker.label for marker in sorted(project.markers, key=lambda m: m.position)]
+    edges = [0.0] + positions + [duration]
+    opening_labels = [""] + labels
+    return [
+        MarkerInterval(start, end, label)
+        for start, end, label in zip(edges, edges[1:], opening_labels)
+        if end - start >= MIN_GAP_SECONDS
+    ]

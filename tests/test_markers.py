@@ -158,3 +158,40 @@ def test_project_without_markers_key_still_loads(saved_project, tmp_path):
     reloaded = load_project(str(out_path), ffprobe_service, ffmpeg_service)
 
     assert reloaded.markers == []
+
+
+# --- Tranches délimitées par les repères ------------------------------------
+
+
+def test_intervals_split_the_audio_at_every_marker(project):
+    _add(project, 2.0, "A")
+    _add(project, 6.0, "B")
+
+    assert marker_service.intervals(project, 10.0) == [
+        (0.0, 2.0, ""),      # avant le premier repère : aucun nom, la séquence sera numérotée
+        (2.0, 6.0, "A"),
+        (6.0, 10.0, "B"),
+    ]
+
+
+def test_intervals_of_an_unmarked_audio_is_the_whole_file(project):
+    assert marker_service.intervals(project, 10.0) == [(0.0, 10.0, "")]
+
+
+def test_intervals_drop_slices_too_short_to_be_useful(project):
+    _add(project, 0.01, "Collé au début")
+    _add(project, 5.0, "Utile")
+    _add(project, 9.999, "Collé à la fin")
+
+    assert marker_service.intervals(project, 10.0) == [(0.01, 5.0, "Collé au début"), (5.0, 9.999, "Utile")]
+
+
+def test_intervals_follow_the_chronological_order_not_the_creation_order(project):
+    _add(project, 6.0, "Posé en premier")
+    _add(project, 2.0, "Posé ensuite")
+
+    assert [label for _start, _end, label in marker_service.intervals(project, 10.0)] == [
+        "",
+        "Posé ensuite",
+        "Posé en premier",
+    ]

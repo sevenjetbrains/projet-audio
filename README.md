@@ -36,6 +36,8 @@ python -m app.main
 - Repères sur la timeline (M pour en poser un à la tête de lecture, Maj+M pour le retirer, Alt+↑/↓ pour aller au précédent/suivant, Alt+S pour sélectionner l'intervalle entre les deux repères encadrants) : affichés en traits étiquetés sur la forme d'onde, où on les tire pour les déplacer et on les double-clique pour les renommer ; toutes ces actions sont annulables et les repères sont enregistrés dans le projet
 - Ajustement des bornes d'une séquence existante (poignées sur la waveform) et division à la tête de lecture, annulables ; les traitements sont conservés
 - Création et gestion de séquences (début/fin, réorganisation par glisser-déposer, sélection multiple : suppression, duplication et traitement en lot)
+- Découpage aux repères (menu Séquences) : chaque tranche délimitée par deux repères devient une séquence, nommée d'après le repère qui l'ouvre, avec le même aperçu à cocher que le découpage automatique
+- Découpage aux repères (menu Séquences) : chaque tranche délimitée par deux repères devient une séquence, nommée d'après le repère qui l'ouvre, avec le même aperçu à cocher que le découpage automatique
 - Découpage automatique en séquences selon les silences, avec aperçu des passages détectés (à cocher), annulable en une action
 - Comparaison A/B (bouton Original, Ctrl+B) : bascule en cours d'écoute entre l'audio brut et l'audio traité, à la même position
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)
