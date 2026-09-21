@@ -41,6 +41,36 @@ def remove_silences(project: Project, sequence: Sequence, ffmpeg_service: FFmpeg
     return out_path, total_duration
 
 
+def build_preview(
+    project: Project,
+    sequence: Sequence,
+    ffmpeg_service: FFmpegService,
+    settings,
+    seconds: float,
+) -> tuple[str, str]:
+    """Prépare l'extrait « avant / après » : les `seconds` premières secondes, brutes puis traitées.
+
+    Écrit deux fichiers d'aperçu fixes par séquence, réécrits à chaque essai : un aperçu est
+    jetable, inutile d'accumuler un fichier par réglage essayé. Retourne (brut, traité) ; les
+    deux chemins sont identiques quand aucun traitement n'est actif.
+    """
+    extract = str(Path(project.temp_dir) / f"preview_{sequence.id}_avant.wav")
+    ffmpeg_service.cut_audio(sequence.audio_path, extract, 0.0, min(seconds, sequence.duration))
+
+    duration = min(seconds, sequence.duration)
+    measured_peak_db = None
+    if settings.normalize and settings.normalize_mode == "peak":
+        measured_peak_db = ffmpeg_service.measure_peak_db(extract)
+
+    filter_chain = build_filter_chain(settings, duration, measured_peak_db)
+    if filter_chain is None:
+        return extract, extract
+
+    processed = str(Path(project.temp_dir) / f"preview_{sequence.id}_apres.wav")
+    ffmpeg_service.apply_filters(extract, processed, filter_chain)
+    return extract, processed
+
+
 def process_sequence(
     project: Project,
     sequence: Sequence,

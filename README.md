@@ -40,6 +40,7 @@ python -m app.main
 - Découpage aux repères (menu Séquences) : chaque tranche délimitée par deux repères devient une séquence, nommée d'après le repère qui l'ouvre, avec le même aperçu à cocher que le découpage automatique
 - Découpage aux repères (menu Séquences) : chaque tranche délimitée par deux repères devient une séquence, nommée d'après le repère qui l'ouvre, avec le même aperçu à cocher que le découpage automatique
 - Découpage automatique en séquences selon les silences, avec aperçu des passages détectés (à cocher), annulable en une action
+- Écouter avant / après dans la fenêtre de traitement : les 15 premières secondes de la séquence sont extraites puis traitées avec les réglages à l'écran, jouées brutes puis traitées à la suite, les deux formes d'onde côte à côte
 - Comparaison A/B (bouton Original, Ctrl+B) : bascule en cours d'écoute entre l'audio brut et l'audio traité, à la même position
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression réglable (ratio et seuil), gain, fondus, normalisation par crête (cible en dBFS, mesurée puis corrigée au gain constant) ou en loudness (LUFS)
 - Fenêtre de traitement en cartes : profils cliquables à gauche (Voix parlée, Interview, Podcast, Conférence, Enregistrement micro, Voix faible), réglages groupés par thème à droite (réduction de bruit, nettoyage, égaliseur, normalisation, compression, gain et fondus, suppression des silences) ; toucher un réglage quitte le profil, et « Appliquer » traite la sélection entière

@@ -8,8 +8,9 @@ qui rappelle que rien n'est destructif avant de lancer le traitement.
 
 import copy
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QUndoStack
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.audio.waveform import compute_peaks
 from app.config.audio_profiles import AUDIO_PROFILES, CUSTOM_PROFILE_LABEL
 from app.config.themes import Theme
 from app.models.audio_settings import AudioSettings
@@ -34,8 +36,9 @@ from app.models.sequence import Sequence
 from app.services import audio_processor
 from app.services.ffmpeg_service import FFmpegService
 from app.ui.controls import ProfileCard, SegmentedControl, SliderRow, ToggleSwitch
-from app.ui.design import accent_button, card_layout, flat_button, label, section_label
+from app.ui.design import accent_button, card_layout, flat_button, icon_button, label, section_label
 from app.ui.icons import set_button_icon
+from app.ui.preview_strip import BeforeAfterStrip
 from app.ui.shortcuts import set_button_shortcut
 from app.ui.undo_commands import CallbackCommand
 from app.utils.progress import sub_progress
@@ -51,6 +54,9 @@ _NON_DESTRUCTIVE_NOTE = (
 _COMPRESSION_NOTE = (
     "Réglage adapté à la voix : resserre les écarts sans écraser la dynamique."
 )
+# Durée de l'extrait comparé : assez pour juger un réglage, assez court pour être prêt tout de suite.
+_PREVIEW_SECONDS = 15.0
+_PREVIEW_PEAKS = 110  # nombre de barres par moitié de la bande avant/après
 
 
 def _separator() -> QFrame:
@@ -156,6 +162,20 @@ class AudioProcessingPanel(QWidget):
         self._silence_threshold_slider = SliderRow("Seuil", -60.0, -10.0, "dB", scale=1, decimals=0)
         self._silence_min_duration_spin = self._make_ms_spin(maximum=5000, step=50)
         self._silence_keep_padding_spin = self._make_ms_spin(maximum=2000, step=10)
+
+        self._preview_button = icon_button("play", size=64)
+        self._preview_button.setProperty("accent", "true")
+        set_button_icon(self._preview_button, "play", size=24)
+        self._preview_button.clicked.connect(self._on_preview_clicked)
+        self._preview_subtitle = label("", "settingHint")
+        self._preview_strip = BeforeAfterStrip()
+        self._preview_player = QMediaPlayer(self)
+        self._preview_player.setAudioOutput(QAudioOutput(self))
+        self._preview_player.positionChanged.connect(self._on_preview_position)
+        self._preview_player.mediaStatusChanged.connect(self._on_preview_status)
+        self._preview_paths: tuple[str, str] | None = None
+        self._preview_phase = 0
+        self._preview_worker: FFmpegTaskWorker | None = None
 
         self._close_button = QPushButton()
         self._close_button.setFixedSize(44, 44)
@@ -292,9 +312,10 @@ class AudioProcessingPanel(QWidget):
         grid.addWidget(self._build_compression_card(), 2, 0)
         grid.addWidget(self._build_gain_card(), 2, 1)
         grid.addWidget(self._build_silence_card(), 3, 0, 1, 2)
+        grid.addWidget(self._build_preview_card(), 4, 0, 1, 2)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
-        grid.setRowStretch(4, 1)
+        grid.setRowStretch(5, 1)
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
@@ -398,6 +419,21 @@ class AudioProcessingPanel(QWidget):
         layout.addLayout(durations)
         return card
 
+    def _build_preview_card(self) -> QWidget:
+        texts = QVBoxLayout()
+        texts.setSpacing(3)
+        texts.addWidget(label("Écouter avant / après", "cardTitle"))
+        texts.addWidget(self._preview_subtitle)
+
+        card, layout = card_layout(spacing=0, margin=18)
+        layout.setDirection(QVBoxLayout.Direction.LeftToRight)
+        layout.addWidget(self._preview_button)
+        layout.addSpacing(18)
+        layout.addLayout(texts)
+        layout.addSpacing(24)
+        layout.addWidget(self._preview_strip, 1)
+        return card
+
     def _build_footer(self) -> QWidget:
         note = label(_NON_DESTRUCTIVE_NOTE, "footerNote")
         note.setWordWrap(True)
@@ -433,6 +469,7 @@ class AudioProcessingPanel(QWidget):
         """Répercute le thème sur les interrupteurs, qui sont peints au QPainter."""
         for toggle in self._toggles:
             toggle.set_theme(theme)
+        self._preview_strip.set_theme(theme)
 
     # --- Accès de la fenêtre principale ---------------------------------------
 
@@ -462,6 +499,10 @@ class AudioProcessingPanel(QWidget):
         self._select_profile(CUSTOM_PROFILE_LABEL, load=False)
         self._load_settings(sequence.audio_settings if sequence else AudioSettings())
         self._refresh_target_labels()
+        self._stop_preview()
+        self._preview_paths = None
+        self._preview_strip.clear()
+        self._preview_subtitle.setText(self._preview_label())
         self._status_label.setText(
             f"Séquence : {sequence.name}" if sequence else "Sélectionnez une séquence."
         )
@@ -505,6 +546,85 @@ class AudioProcessingPanel(QWidget):
         self._peak_spin.setEnabled(self._peak_radio.isChecked())
         self._lufs_slider.setEnabled(self._loudness_radio.isChecked())
         self._on_setting_edited()
+
+    # --- Aperçu avant / après ------------------------------------------------------
+
+    def _preview_label(self) -> str:
+        if self._sequence is None:
+            return ""
+        if self._sequence.duration <= _PREVIEW_SECONDS:
+            return f"sur « {self._sequence.name} », en entier"
+        return f"sur « {self._sequence.name} », {int(_PREVIEW_SECONDS)} premières secondes"
+
+    def _on_preview_clicked(self) -> None:
+        """Prépare l'extrait avec les réglages à l'écran, puis le joue brut puis traité."""
+        if self._preview_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._stop_preview()
+            return
+        if self._project is None or self._sequence is None or self._preview_worker is not None:
+            return
+
+        self._preview_strip.clear()
+        self._preview_subtitle.setText("Préparation de l'extrait…")
+        self._preview_button.setEnabled(False)
+
+        project, sequence = self._project, self._sequence
+        settings = self._read_settings()
+        self._preview_worker = FFmpegTaskWorker(
+            lambda: audio_processor.build_preview(
+                project, sequence, self._ffmpeg_service, settings, _PREVIEW_SECONDS
+            )
+        )
+        self._preview_worker.succeeded.connect(self._on_preview_ready)
+        self._preview_worker.failed.connect(self._on_preview_failed)
+        self._preview_worker.start()
+
+    def _on_preview_ready(self, paths: tuple) -> None:
+        self._preview_worker = None
+        self._preview_button.setEnabled(True)
+        self._preview_paths = paths
+        self._preview_subtitle.setText(self._preview_label())
+        before, after = paths
+        self._preview_strip.set_peaks(
+            compute_peaks(before, _PREVIEW_PEAKS), compute_peaks(after, _PREVIEW_PEAKS)
+        )
+        self._play_preview_phase(0)
+
+    def _on_preview_failed(self, message: str) -> None:
+        self._preview_worker = None
+        self._preview_button.setEnabled(True)
+        self._preview_subtitle.setText(self._preview_label())
+        self._status_label.setText("L'aperçu n'a pas pu être préparé.")
+        QMessageBox.critical(self, "AudioCut Studio — Erreur", message)
+
+    def _play_preview_phase(self, phase: int) -> None:
+        """Phase 0 : l'extrait brut. Phase 1 : le même extrait traité, enchaîné à la suite."""
+        if self._preview_paths is None:
+            return
+        self._preview_phase = phase
+        self._preview_player.setSource(QUrl.fromLocalFile(self._preview_paths[phase]))
+        self._preview_player.play()
+        set_button_icon(self._preview_button, "pause", size=24)
+
+    def _on_preview_position(self, position_ms: int) -> None:
+        duration = self._preview_player.duration()
+        if duration <= 0:
+            return
+        # La bande couvre les deux extraits : la première moitié est le brut, la seconde le traité.
+        self._preview_strip.set_progress((self._preview_phase + position_ms / duration) / 2)
+
+    def _on_preview_status(self, status) -> None:
+        if status != QMediaPlayer.MediaStatus.EndOfMedia:
+            return
+        if self._preview_phase == 0:
+            self._play_preview_phase(1)
+        else:
+            self._stop_preview()
+
+    def _stop_preview(self) -> None:
+        self._preview_player.stop()
+        self._preview_strip.set_progress(None)
+        set_button_icon(self._preview_button, "play", size=24)
 
     # --- Lecture / écriture des réglages ----------------------------------------
 
