@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Dernier point de reprise : commit `717ea76` sur `main` (github.com/sevenjetbrains/projet-audio), 651 tests verts (`pytest`).
+Dernier point de reprise : commit `7b35e7b` sur `main` (github.com/sevenjetbrains/projet-audio), 653 tests verts (`pytest`).
 
 **Fait avant cette session :** tout le pipeline (extraction, sélection, séquences, traitement audio non destructif, fusion, export multi-formats, projet .acsproject, undo/redo, autosave, thèmes, raccourcis + aide F1), puis la maquette de la fenêtre principale, le lecteur vidéo intégré, le plein écran avec barre de contrôle, l'aperçu fluide (copie allégée), l'écoute de la sélection, la boucle, les poignées de bornes sur la waveform, l'ajustement/division des séquences existantes et la comparaison A/B.
 
@@ -37,9 +37,18 @@ Dernier point de reprise : commit `717ea76` sur `main` (github.com/sevenjetbrain
 - Export interruptible : `export_audio`/`apply_filters` prennent `should_cancel`, `export_project`/`export_sequences_separately` le vérifient entre les étapes et annoncent l'étape via `on_stage`, `ExportWorker` (workers/ffmpeg_worker.py) émet `cancelled` au lieu de `failed`.
 - `export_audio(..., sample_rate=)` ajoute `-ar` ; temps restant estimé depuis le temps écoulé (`QElapsedTimer`).
 
+**Fait ensuite (mise en page vs taille d'écran, trouvé en lançant l'application) :**
+- L'écran de test fait 1024×544 logiques ; la fenêtre en exigeait 1357×767, et Windows rognait le bord droit et le bas. Minimum ramené à 650×449 pour l'accueil.
+- Les deux pages (accueil et éditeur) sont dans un `QScrollArea` (`MainWindow._scrollable`) : une fenêtre trop petite fait défiler au lieu de perdre du contenu. La page d'accueil n'est donc plus l'enfant direct de `_pages` — d'où `setCurrentIndex(0)` et `currentWidget().widget()` dans les tests.
+- Colonnes latérales de l'éditeur rognées à parts égales quand l'écran est trop étroit (`_column_widths`), colonne de l'accueil dimensionnée dans `WelcomeView.resizeEvent` d'après la largeur réelle de la page.
+- Le libellé d'aide de la waveform imposait 555 px au panneau central : passé en `QSizePolicy.Ignored`.
+
 **Prochaine étape :** aucune identifiée — demander à l'utilisateur, ou proposer une amélioration (pistes non traitées : export d'un rapport/liste des séquences, recherche-filtre dans la liste, aimantation des bornes sur les silences détectés ou sur un passage par zéro).
 
 **Pièges connus :**
+- Écran à 125 % : `QScreen.availableGeometry()` est en pixels écran, les widgets en pixels logiques. Diviser par `devicePixelRatio()` avant de comparer (`MainWindow._available_size`).
+- Demander une fenêtre à la taille exacte de la zone de travail la fait maximiser par Windows, qui la fait déborder de ~7 px par côté : garder une marge (`_SCREEN_MARGIN`).
+- Une capture d'écran faite par un outil non adapté au DPI (PowerShell + `GetWindowRect`/`CopyFromScreen`) renvoie la fenêtre à 80 % de sa taille réelle et tronque l'image : on croit à tort que la mise en page déborde. Capturer depuis Qt (`window.grab()`) pour juger un rendu.
 - `grab()` renvoie des pixels physiques (écran à 125 %) : convertir avec `devicePixelRatio()` dans les tests de rendu.
 - `QMessageBox.question` est neutralisé par une fixture autouse de `tests/conftest.py` (sinon la fermeture d'une fenêtre « modifiée » bloque les tests).
 - Un `QMimeData` passé à un événement Qt doit rester référencé par le test (sinon crash).
