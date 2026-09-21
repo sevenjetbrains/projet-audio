@@ -34,8 +34,7 @@ Dernier point de reprise : commit `9df3a1e` sur `main` (github.com/sevenjetbrain
 - `SequenceListWidget.play_requested` émet `(name, audio_path, source_start)` — 3 arguments.
 - `deleteLater()` seul ne retire pas un widget de l'arbre : les vignettes de projets récents sont détachées par `setParent(None)` avant, sinon elles restent visibles (et dans `findChildren`) jusqu'au prochain tour de boucle.
 - Tester la visibilité d'une carte d'un écran non affiché demande `isVisibleTo(parent)`, pas `isVisible()`.
-- Ne pas écrire `
-` dans une chaîne Python passée par heredoc à `python -` : la séquence est convertie en vrai saut de ligne avant d'arriver à Python, et un `str.replace` ciblant ce littéral échoue.
+- Ne pas écrire une séquence d'échappement `backslash-n` dans une chaîne Python passée par heredoc à `python -` : elle est convertie en vrai saut de ligne avant d'arriver à Python, et un `str.replace` ciblant ce littéral échoue. Passer par une expression régulière sur les lignes.
 - Les raccourcis à une seule touche (`I`, `O`, `L`, `M`, `F`) sont des `QShortcut` de fenêtre : ils volent la frappe aux champs de saisie non modaux. Le renommage passe par un `QInputDialog` modal, donc sans conflit — garder cette contrainte en tête avant d'ajouter un champ éditable en ligne.
 
 Voir aussi [[feedback-commit-push-autonomy]] et [[feedback-autonomous-phases]].
