@@ -120,7 +120,7 @@ def test_status_bar_summary_tracks_sequences_and_crossfade(qtbot, monkeypatch):
     from app.models.sequence import Sequence
 
     window = _window_with_duration(qtbot, monkeypatch)
-    assert window._project_summary_label.text() == "Aucun projet"
+    assert window._project_summary_label.text() == "0 séquence · aucune durée estimée"
 
     project = Project(name="demo")
     project.sequences = [

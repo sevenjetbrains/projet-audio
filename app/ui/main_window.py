@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QProgressDialog,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -31,11 +32,12 @@ from app.services.export_service import ExportError, merge_sequences
 from app.services.project_service import (
     PROJECT_FILE_EXTENSION,
     autosave_project,
+    describe_autosave,
     find_recoverable_autosaves,
     load_project,
     save_project,
 )
-from app.services.recent_projects import add_recent_project, load_recent_projects
+from app.services.recent_projects import add_recent_project, describe_recent_projects, load_recent_projects
 from app.services.preview_proxy import build_preview_proxy, needs_preview_proxy
 from app.services.sequence_service import create_sequences_from_ranges, detect_speech_ranges
 from app.ui.app_toolbar import AppToolBar
@@ -57,6 +59,7 @@ from app.ui.video_player_panel import VideoPlayerPanel
 from app.ui.video_preview import VideoPreview
 from app.ui.waveform_overview import WaveformOverview
 from app.ui.waveform_widget import WaveformWidget
+from app.ui.welcome_view import WelcomeView
 from app.utils.time_utils import format_timecode, format_timecode_fr
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
@@ -65,6 +68,9 @@ _RIGHT_PANEL_WIDTH = 360
 _AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
 _SAVE_STATE_REFRESH_MS = 30 * 1000
 _WAVEFORM_HINT = "clic = lecture · glisser = sélection"
+_EMPTY_SUMMARY = "0 séquence · aucune durée estimée"
+# Menus sans objet tant qu'aucun projet n'est ouvert (grisés sur l'écran d'accueil).
+_PROJECT_MENUS = ("Édition", "Séquences", "Traitement")
 # Saisie d'un repère à la tête de lecture : quelques pixels à l'écran, jamais moins d'un quart de seconde.
 _MARKER_PICK_PIXELS = 6
 _MARKER_PICK_SECONDS = 0.25
@@ -78,6 +84,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
 
         self._video_panel = VideoPanel(ffmpeg_binaries)
+        self._welcome_view = WelcomeView()
         self._video_preview = VideoPreview()
         self._waveform_widget = WaveformWidget()
         self._waveform_overview = WaveformOverview()
@@ -128,6 +135,7 @@ class MainWindow(QMainWindow):
         # le décoder, on bascule une seule fois sur le WAV extrait par FFmpeg.
         self._video_playback_failed = False
         self._dirty = False
+        self._pending_autosave = None
 
         self._build_actions()
         self.setCentralWidget(self._build_central_widget())
@@ -139,6 +147,8 @@ class MainWindow(QMainWindow):
         self._update_project_summary()
         self._update_window_title()
         self._update_save_state()
+        self._update_project_menus()
+        self._show_welcome()
 
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(_AUTOSAVE_INTERVAL_MS)
@@ -197,6 +207,13 @@ class MainWindow(QMainWindow):
     # --- Construction de l'interface ---------------------------------------
 
     def _build_central_widget(self) -> QWidget:
+        """Deux pages : l'accueil tant qu'aucun projet n'est ouvert, puis l'éditeur."""
+        self._pages = QStackedWidget()
+        self._pages.addWidget(self._welcome_view)
+        self._pages.addWidget(self._build_editor())
+        return self._pages
+
+    def _build_editor(self) -> QWidget:
         toolbar = AppToolBar(
             groups=(
                 (self._import_action, self._save_action),
@@ -355,7 +372,10 @@ class MainWindow(QMainWindow):
 
     def _build_status_bar(self) -> None:
         self._project_summary_label = QLabel()
-        self._status_hint_label = label("Prêt", "hintLabel")
+        version = self._video_panel.ffmpeg_service.version()
+        self._status_hint_label = label(
+            f"FFmpeg détecté · version {version}" if version else "FFmpeg détecté", "hintLabel"
+        )
         self.statusBar().addPermanentWidget(self._project_summary_label, 1)
         self.statusBar().addPermanentWidget(self._status_hint_label)
 
@@ -423,11 +443,17 @@ class MainWindow(QMainWindow):
 
     def dragEnterEvent(self, event) -> None:
         if self._dropped_path(event.mimeData()) is not None:
+            self._welcome_view.set_drop_active(True)
             event.acceptProposedAction()
         else:
             event.ignore()
 
+    def dragLeaveEvent(self, event) -> None:
+        self._welcome_view.set_drop_active(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event) -> None:
+        self._welcome_view.set_drop_active(False)
         dropped = self._dropped_path(event.mimeData())
         if dropped is None:
             event.ignore()
@@ -442,18 +468,28 @@ class MainWindow(QMainWindow):
     # --- Sauvegarde automatique ---------------------------------------------
 
     def _check_for_recoverable_autosave(self) -> None:
+        """Propose la récupération dans un bandeau de l'accueil, jamais dans une boîte modale.
+
+        Une boîte modale au lancement bloque l'application avant qu'on ait rien vu ; le
+        bandeau laisse importer une vidéo ou ouvrir un autre projet sans y répondre."""
         autosaves = find_recoverable_autosaves()
         if not autosaves:
             return
-
-        answer = QMessageBox.question(
-            self,
-            "AudioCut Studio",
-            "Un projet non sauvegardé a été trouvé (fermeture inattendue).\n"
-            "Voulez-vous le récupérer ?",
+        self._pending_autosave = describe_autosave(autosaves[0])
+        self._welcome_view.show_autosave_offer(
+            self._pending_autosave.project_name, self._pending_autosave.saved_at
         )
-        if answer == QMessageBox.StandardButton.Yes:
-            self._start_project_load(autosaves[0], remember=False)
+
+    def _recover_autosave(self) -> None:
+        if self._pending_autosave is None:
+            return
+        path = self._pending_autosave.path
+        self._dismiss_autosave()
+        self._start_project_load(path, remember=False)
+
+    def _dismiss_autosave(self) -> None:
+        self._pending_autosave = None
+        self._welcome_view.hide_autosave_offer()
 
     def _on_autosave_tick(self) -> None:
         project = self._video_panel.project
@@ -486,6 +522,16 @@ class MainWindow(QMainWindow):
 
     def _wire_signals(self) -> None:
         self._video_panel.audio_ready.connect(self._on_audio_ready)
+        self._video_panel.extraction_started.connect(self._welcome_view.start_import_progress)
+        self._video_panel.extraction_progress.connect(self._welcome_view.set_import_progress)
+        self._video_panel.extraction_finished.connect(self._welcome_view.hide_import_progress)
+
+        self._welcome_view.import_requested.connect(self._video_panel.trigger_import)
+        self._welcome_view.open_project_requested.connect(self._on_open_project_clicked)
+        self._welcome_view.recent_project_chosen.connect(self._start_project_load)
+        self._welcome_view.autosave_recovery_requested.connect(self._recover_autosave)
+        self._welcome_view.autosave_dismissed.connect(self._dismiss_autosave)
+        self._welcome_view.import_cancel_requested.connect(self._video_panel.cancel_extraction)
         self._waveform_widget.seek_requested.connect(self._on_waveform_seek_requested)
         self._waveform_widget.selection_changed.connect(self._on_selection_changed)
         self._waveform_widget.region_clicked.connect(self._sequence_list.select_sequence)
@@ -530,11 +576,23 @@ class MainWindow(QMainWindow):
     def _mark_dirty(self) -> None:
         self._set_dirty(True)
 
+    def _show_welcome(self) -> None:
+        """Revient à l'accueil et y rafraîchit la liste des projets récents."""
+        self._welcome_view.set_recent_projects(describe_recent_projects())
+        self._pages.setCurrentWidget(self._welcome_view)
+
+    def _update_project_menus(self) -> None:
+        """Grise les menus qui n'ont aucun sens sans projet (comme sur la maquette d'accueil)."""
+        opened = self._video_panel.project is not None
+        for action in self.menuBar().actions():
+            if action.text() in _PROJECT_MENUS:
+                action.setEnabled(opened)
+
     def _update_window_title(self) -> None:
         project = self._video_panel.project
         if project is None:
             self.setWindowTitle(APP_NAME)
-            self._set_project_name_label("")
+            self._set_project_name_label("Aucun projet ouvert")
             return
         suffix = " *" if self._dirty else ""
         self.setWindowTitle(f"{project.name}{suffix} — {APP_NAME}")
@@ -573,6 +631,9 @@ class MainWindow(QMainWindow):
     # --- Chargement de la source ---------------------------------------------
 
     def _on_audio_ready(self, wav_path: str, duration: float) -> None:
+        self._pages.setCurrentIndex(1)
+        self._welcome_view.hide_autosave_offer()
+        self._update_project_menus()
         self._waveform_widget.load(wav_path, duration)
         self._waveform_overview.load(wav_path, duration)
         self._video_playback_failed = False
@@ -999,7 +1060,7 @@ class MainWindow(QMainWindow):
         """Barre d'état : nombre de séquences et durée totale estimée du résultat fusionné."""
         project = self._video_panel.project
         if project is None:
-            self._project_summary_label.setText("Aucun projet")
+            self._project_summary_label.setText(_EMPTY_SUMMARY)
             return
         count = len(project.sequences)
         total = sum(seq.duration for seq in project.sequences)

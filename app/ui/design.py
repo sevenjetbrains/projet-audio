@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.icons import ICON_NAMES, set_button_icon
+from app.ui.icons import ICON_NAMES, set_button_icon, set_button_leading_icon
 
 
 def card(variant: str = "true") -> QFrame:
@@ -78,6 +78,23 @@ def accent_button(text: str) -> QPushButton:
     """Bouton d'action principale (orange plein)."""
     button = QPushButton(text)
     button.setProperty("accent", "true")
+    return button
+
+
+def kbd(text: str) -> QLabel:
+    """Touche de clavier en pastille monospace (« Ctrl+O »), pour les aides de bas d'écran."""
+    widget = QLabel(text)
+    widget.setProperty("kbd", "true")
+    widget.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+    return widget
+
+
+def labelled_icon_button(text: str, icon: str, accent: bool = False) -> QPushButton:
+    """Bouton « icône + libellé » (« 📁 Importer une vidéo… ») de l'écran d'accueil."""
+    button = QPushButton(text)
+    if accent:
+        button.setProperty("accent", "true")
+    set_button_leading_icon(button, icon, size=16)
     return button
 
 

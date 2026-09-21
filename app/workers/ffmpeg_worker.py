@@ -7,7 +7,7 @@ from typing import Any
 from PySide6.QtCore import QThread, Signal
 
 from app.services.export_service import ExportError
-from app.services.ffmpeg_service import FFmpegExecutionError, FFmpegService
+from app.services.ffmpeg_service import FFmpegCancelled, FFmpegExecutionError, FFmpegService
 from app.services.project_service import ProjectLoadError
 
 logger = logging.getLogger("audiocut")
@@ -17,6 +17,7 @@ class ExtractAudioWorker(QThread):
     progress = Signal(int)
     succeeded = Signal(str)
     failed = Signal(str)
+    cancelled = Signal()
 
     def __init__(
         self,
@@ -31,6 +32,11 @@ class ExtractAudioWorker(QThread):
         self._video_path = video_path
         self._out_wav_path = out_wav_path
         self._total_duration = total_duration
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Demande l'arrêt ; le processus ffmpeg s'interrompt à sa prochaine ligne de progression."""
+        self._cancelled = True
 
     def run(self) -> None:
         try:
@@ -39,7 +45,11 @@ class ExtractAudioWorker(QThread):
                 self._out_wav_path,
                 self._total_duration,
                 on_progress=lambda fraction: self.progress.emit(int(fraction * 100)),
+                should_cancel=lambda: self._cancelled,
             )
+        except FFmpegCancelled:
+            self.cancelled.emit()
+            return
         except FFmpegExecutionError as exc:
             logger.error("Échec de l'extraction audio : %s", exc)
             self.failed.emit("Erreur lors du traitement audio. Consultez les logs pour plus de détails.")

@@ -1,5 +1,6 @@
 """Bloc SOURCE : import du fichier, métadonnées de la vidéo, extraction de la piste audio."""
 
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -58,6 +59,10 @@ def _describe_audio(media_info) -> str:
 
 class VideoPanel(QWidget):
     audio_ready = Signal(str, float)
+    # Suivis par l'écran d'accueil, qui montre la progression de l'import tant qu'aucun projet n'est ouvert.
+    extraction_started = Signal(str)
+    extraction_progress = Signal(int)
+    extraction_finished = Signal()
 
     def __init__(self, ffmpeg_binaries: FFmpegBinaries, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -206,6 +211,7 @@ class VideoPanel(QWidget):
         self._worker.progress.connect(self._on_extraction_progress)
         self._worker.succeeded.connect(self._on_extraction_succeeded)
         self._worker.failed.connect(self._on_extraction_failed)
+        self._worker.cancelled.connect(self._on_extraction_cancelled)
 
         self._import_button.setEnabled(False)
         self._extraction_card.setProperty("card", "true")
@@ -216,11 +222,18 @@ class VideoPanel(QWidget):
         self._progress_bar.show()
         self._extraction_card.show()
         self._repolish()
+        self.extraction_started.emit(Path(media_info.path).name)
         self._worker.start()
+
+    def cancel_extraction(self) -> None:
+        """Interrompt l'extraction en cours ; sans effet si aucune n'est lancée."""
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.cancel()
 
     def _on_extraction_progress(self, percent: int) -> None:
         self._progress_bar.setValue(percent)
         self._extraction_percent.setText(f"{percent} %")
+        self.extraction_progress.emit(percent)
 
     def _finish_extraction_display(self) -> None:
         """Carte verte « Piste audio extraite — 100 % », état de repos après extraction."""
@@ -244,6 +257,7 @@ class VideoPanel(QWidget):
         self._project.original_audio_path = out_wav_path
         self._import_button.setEnabled(True)
         self._finish_extraction_display()
+        self.extraction_finished.emit()
         self.audio_ready.emit(out_wav_path, self._project.source_video.duration)
 
     def _on_extraction_failed(self, message: str) -> None:
@@ -254,4 +268,17 @@ class VideoPanel(QWidget):
         self._status_label.setText("Vérifiez que le fichier contient bien une piste audio lisible.")
         self._extraction_card.setProperty("card", "true")
         self._repolish()
+        self.extraction_finished.emit()
         QMessageBox.critical(self, "AudioCut Studio — Erreur", message)
+
+    def _on_extraction_cancelled(self) -> None:
+        """Import abandonné : le projet à demi créé et son dossier temporaire ne doivent rien laisser."""
+        temp_dir = self._project.temp_dir if self._project is not None else ""
+        self._project = None
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        self._import_button.setEnabled(True)
+        self._progress_bar.hide()
+        self._extraction_card.hide()
+        self._show_metadata(False)
+        self.extraction_finished.emit()

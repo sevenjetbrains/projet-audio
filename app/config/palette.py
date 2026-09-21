@@ -27,6 +27,8 @@ DARK_PALETTE: dict[str, str] = {
     "accent_soft": "#3a2418",
     "success": "#4aa877",
     "success_soft": "#1d3328",
+    "warning": "#e0a83a",
+    "warning_soft": "#2e2718",
     # Waveform et règle temporelle.
     "wave_bg": "#191d23",
     "wave_bar": "#94a3b2",
@@ -61,6 +63,8 @@ LIGHT_PALETTE: dict[str, str] = {
     "accent_soft": "#fdeee6",
     "success": "#1f8a4c",
     "success_soft": "#e5f4ea",
+    "warning": "#a8741c",
+    "warning_soft": "#fdf3e0",
     "wave_bg": "#ffffff",
     "wave_bar": "#6b7a8c",
     "wave_grid": "#e4e9ef",

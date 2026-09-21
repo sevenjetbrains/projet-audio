@@ -1,7 +1,8 @@
 """Création et gestion du cycle de vie d'un Project, sauvegarde/chargement (.acsproject)."""
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -69,6 +70,30 @@ def autosave_project(project: Project) -> str:
     out_path = str(Path(project.temp_dir) / AUTOSAVE_FILENAME)
     save_project(project, out_path)
     return out_path
+
+
+@dataclass(frozen=True)
+class AutosaveInfo:
+    """Une sauvegarde automatique récupérable, telle que l'écran d'accueil la présente."""
+
+    path: str
+    project_name: str
+    saved_at: datetime
+
+
+def describe_autosave(path: str) -> AutosaveInfo:
+    """Nom du projet et date de la sauvegarde ; un fichier illisible garde le nom du dossier."""
+    file = Path(path)
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+        name = data.get("project_name") or file.parent.name
+    except (OSError, ValueError):
+        name = file.parent.name
+    try:
+        saved_at = datetime.fromtimestamp(file.stat().st_mtime)
+    except OSError:
+        saved_at = datetime.now()
+    return AutosaveInfo(str(file), name, saved_at)
 
 
 def find_recoverable_autosaves() -> list[str]:

@@ -25,6 +25,7 @@ python -m app.main
 
 ## Fonctionnalités
 
+- Écran d'accueil tant qu'aucun projet n'est ouvert : zone de dépôt (vidéo ou .acsproject), boutons d'import et d'ouverture, formats acceptés, projets récents avec leur nombre de séquences et leur date, progression de l'import annulable, et bandeau de récupération d'une sauvegarde automatique ; les menus sans objet y sont grisés
 - Plein écran de l'aperçu vidéo avec barre de contrôle (lecture/pause, progression cliquable, temps écoulé et durée, masquage automatique ; Échap ou double-clic pour revenir)
 - Aperçu fluide : copie allégée de la vidéo préparée en arrière-plan pour se déplacer instantanément (avant comme arrière)
 - Bornes de la sélection ajustables directement sur la waveform (poignées à tirer, en direct)

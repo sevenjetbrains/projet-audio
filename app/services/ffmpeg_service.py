@@ -17,6 +17,7 @@ from pathlib import Path
 from app.utils.progress import sub_progress
 
 _TIME_PATTERN = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+_VERSION_PATTERN = re.compile(r"ffmpeg version n?(\d+(?:\.\d+)*)")
 _SILENCE_START_PATTERN = re.compile(r"silence_start:\s*(-?\d+\.?\d*)")
 _SILENCE_END_PATTERN = re.compile(r"silence_end:\s*(-?\d+\.?\d*)")
 
@@ -41,9 +42,31 @@ class FFmpegExecutionError(RuntimeError):
     """Levée quand une commande FFmpeg échoue (détail technique dans l'exception)."""
 
 
+class FFmpegCancelled(RuntimeError):
+    """Levée quand l'appelant a demandé l'arrêt : le processus a été interrompu, pas planté.
+
+    Distincte de `FFmpegExecutionError` pour que l'interface ne présente pas une annulation
+    volontaire comme une erreur.
+    """
+
+
 class FFmpegService:
     def __init__(self, ffmpeg_path: str) -> None:
         self._ffmpeg_path = ffmpeg_path
+
+    def version(self) -> str:
+        """Numéro de version de FFmpeg (« 7.1 »), ou chaîne vide s'il est illisible.
+
+        Les binaires distribués suffixent leur version (`7.1-full_build-www.gyan.dev`) :
+        seule la partie numérique est retenue, c'est la seule utile à afficher."""
+        try:
+            output = subprocess.run(
+                [self._ffmpeg_path, "-version"], capture_output=True, text=True, timeout=5
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        match = _VERSION_PATTERN.match(output)
+        return match.group(1) if match else ""
 
     def extract_audio(
         self,
@@ -51,8 +74,13 @@ class FFmpegService:
         out_wav_path: str,
         total_duration: float,
         on_progress: Callable[[float], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> None:
-        """Extrait la piste audio complète d'une vidéo en WAV PCM, sans toucher au fichier source."""
+        """Extrait la piste audio complète d'une vidéo en WAV PCM, sans toucher au fichier source.
+
+        `should_cancel` est consulté au fil de la progression : dès qu'il répond vrai, le
+        processus est interrompu et `FFmpegCancelled` est levée (l'extraction d'une longue
+        vidéo est la seule opération assez lente pour qu'on veuille y renoncer)."""
         cmd = [
             self._ffmpeg_path,
             "-y",
@@ -61,7 +89,7 @@ class FFmpegService:
             "-acodec", "pcm_s16le",
             out_wav_path,
         ]
-        self._run(cmd, total_duration=total_duration, on_progress=on_progress)
+        self._run(cmd, total_duration=total_duration, on_progress=on_progress, should_cancel=should_cancel)
 
     def cut_audio(self, source_wav_path: str, out_wav_path: str, start: float, end: float) -> None:
         """Découpe une plage [start, end] (secondes) d'un WAV PCM source, sans le modifier.
@@ -280,6 +308,7 @@ class FFmpegService:
         cmd: list[str],
         total_duration: float = 0.0,
         on_progress: Callable[[float], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> list[str]:
         process = subprocess.Popen(
             cmd,
@@ -294,6 +323,10 @@ class FFmpegService:
         assert process.stderr is not None
         for line in process.stderr:
             stderr_lines.append(line)
+            if should_cancel is not None and should_cancel():
+                process.terminate()
+                process.wait()
+                raise FFmpegCancelled("Opération annulée.")
             match = _TIME_PATTERN.search(line)
             if match and on_progress and total_duration > 0:
                 hours, minutes, seconds = match.groups()

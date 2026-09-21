@@ -151,6 +151,32 @@ def _draw_fullscreen(p: QPainter) -> None:
         p.drawPath(_line(corner_x, corner_y, corner_x, corner_y + 4.5 * dy))
 
 
+def _draw_upload(p: QPainter) -> None:
+    """Flèche montante au-dessus d'un plateau : « déposer un fichier ici »."""
+    p.drawPath(_line(10, 3.5, 10, 12.5))
+    p.drawPath(_line(5.8, 7.7, 10, 3.5))
+    p.drawPath(_line(14.2, 7.7, 10, 3.5))
+    p.drawPath(_line(4, 16, 16, 16))
+
+
+def _draw_folder(p: QPainter) -> None:
+    path = QPainterPath(QPointF(3, 15.5))
+    path.lineTo(3, 5.5)
+    path.lineTo(8, 5.5)
+    path.lineTo(9.6, 8)
+    path.lineTo(17, 8)
+    path.lineTo(17, 15.5)
+    path.closeSubpath()
+    p.drawPath(path)
+
+
+def _draw_alert(p: QPainter) -> None:
+    """Cercle et point d'exclamation : bandeau d'avertissement."""
+    p.drawEllipse(QPointF(10, 10), 6.8, 6.8)
+    p.drawPath(_line(10, 5.8, 10, 11))
+    p.fillRect(QRectF(9.2, 13, 1.6, 1.6), p.pen().color())
+
+
 _DRAWINGS: dict[str, Callable[[QPainter], None]] = {
     "play": _draw_play,
     "pause": _draw_pause,
@@ -167,6 +193,9 @@ _DRAWINGS: dict[str, Callable[[QPainter], None]] = {
     "mute": _draw_mute,
     "camera": _draw_camera,
     "fullscreen": _draw_fullscreen,
+    "upload": _draw_upload,
+    "folder": _draw_folder,
+    "alert": _draw_alert,
 }
 
 ICON_NAMES = frozenset(_DRAWINGS)
@@ -197,7 +226,9 @@ def render_icon(name: str, color: str | QColor, size: int = ICON_SIZE) -> QPixma
 # --- Enregistrement des widgets et couleurs du thème ---------------------------------------------
 
 _palette: Mapping[str, str] = DARK_PALETTE
-_registered: "WeakKeyDictionary[QObject, str]" = WeakKeyDictionary()
+# Chaque widget enregistré retient (nom de l'icône, taille) : la taille varie d'un bouton de
+# transport à la grande vignette de la zone de dépôt, et doit survivre à un changement de thème.
+_registered: "WeakKeyDictionary[QObject, tuple[str, int]]" = WeakKeyDictionary()
 
 
 def _colors_for(widget: QObject) -> tuple[str, str]:
@@ -206,50 +237,56 @@ def _colors_for(widget: QObject) -> tuple[str, str]:
     return _palette[normal], _palette["text_faint"]
 
 
-def _two_state_icon(name: str, normal: str, disabled: str) -> QIcon:
+def _two_state_icon(name: str, normal: str, disabled: str, size: int) -> QIcon:
     icon = QIcon()
-    icon.addPixmap(render_icon(name, normal), QIcon.Mode.Normal)
-    icon.addPixmap(render_icon(name, disabled), QIcon.Mode.Disabled)
+    icon.addPixmap(render_icon(name, normal, size), QIcon.Mode.Normal)
+    icon.addPixmap(render_icon(name, disabled, size), QIcon.Mode.Disabled)
     return icon
 
 
-def _apply(widget: QObject, name: str) -> None:
+def _apply(widget: QObject, name: str, size: int) -> None:
     normal, disabled = _colors_for(widget)
     if isinstance(widget, QAbstractButton):
-        widget.setText("")
-        widget.setIcon(_two_state_icon(name, normal, disabled))
-        widget.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
+        widget.setIcon(_two_state_icon(name, normal, disabled, size))
+        widget.setIconSize(QSize(size, size))
     elif isinstance(widget, QAction):
-        widget.setIcon(_two_state_icon(name, normal, disabled))
+        widget.setIcon(_two_state_icon(name, normal, disabled, size))
     elif isinstance(widget, QLabel):
-        widget.setPixmap(render_icon(name, _palette["text_muted"]))
+        widget.setPixmap(render_icon(name, _palette["text_muted"], size))
 
 
-def set_button_icon(button: QAbstractButton, name: str) -> None:
+def set_button_icon(button: QAbstractButton, name: str, size: int = ICON_SIZE) -> None:
     """Affiche l'icône `name` sur le bouton (à la place de son texte) et la suit lors des changements de thème."""
-    _registered[button] = name
-    _apply(button, name)
+    button.setText("")
+    _registered[button] = (name, size)
+    _apply(button, name, size)
 
 
-def set_action_icon(action: QAction, name: str) -> None:
+def set_action_icon(action: QAction, name: str, size: int = ICON_SIZE) -> None:
     """Icône d'une QAction (les boutons de barre d'outils et les menus qui l'affichent la reprennent)."""
-    _registered[action] = name
-    _apply(action, name)
+    _registered[action] = (name, size)
+    _apply(action, name, size)
 
 
-def set_label_icon(label: QLabel, name: str) -> None:
+def set_label_icon(label: QLabel, name: str, size: int = ICON_SIZE) -> None:
     """Affiche l'icône `name` dans un QLabel (icône décorative, teinte discrète)."""
-    _registered[label] = name
-    _apply(label, name)
+    _registered[label] = (name, size)
+    _apply(label, name, size)
+
+
+def set_button_leading_icon(button: QAbstractButton, name: str, size: int = ICON_SIZE) -> None:
+    """Icône posée à gauche du texte du bouton, qui le conserve (contrairement à `set_button_icon`)."""
+    _registered[button] = (name, size)
+    _apply(button, name, size)
 
 
 def set_icon_palette(palette: Mapping[str, str]) -> None:
     """Change les couleurs d'icônes (thème clair/sombre) et redessine toutes les icônes enregistrées."""
     global _palette
     _palette = palette
-    for widget, name in list(_registered.items()):
+    for widget, (name, size) in list(_registered.items()):
         if not isValid(widget):
             # L'objet Qt a été détruit (fenêtre fermée) alors que son wrapper Python survit encore.
             del _registered[widget]
             continue
-        _apply(widget, name)
+        _apply(widget, name, size)
