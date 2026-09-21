@@ -257,3 +257,29 @@ def test_menu_bar_shows_app_title_and_project_name(qtbot, monkeypatch):
     # Le coin doit être assez large pour tout le nom (avant : le texte était coupé à « t »).
     assert right.width() >= right.fontMetrics().horizontalAdvance("ma_video_de_test *")
     assert right.geometry().right() <= menu_bar.width()
+
+
+def test_the_window_fits_on_a_small_laptop_screen(qtbot, monkeypatch):
+    """Garde-fou : la fenêtre exigeait 1357x767, plus que la zone de travail d'un écran
+    1280x720 — Windows rognait alors la colonne de droite et la barre d'état."""
+    monkeypatch.setattr("app.ui.main_window.find_recoverable_autosaves", lambda: [])
+    window = MainWindow(find_ffmpeg_binaries())
+    qtbot.addWidget(window)
+    window.show()
+
+    minimum = window.minimumSizeHint()
+
+    assert minimum.width() <= 1000
+    assert minimum.height() <= 620
+
+
+def test_the_editor_body_can_scroll_when_the_window_is_short(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QScrollArea
+
+    monkeypatch.setattr("app.ui.main_window.find_recoverable_autosaves", lambda: [])
+    window = MainWindow(find_ffmpeg_binaries())
+    qtbot.addWidget(window)
+
+    editor = window._pages.widget(1)
+
+    assert editor.findChildren(QScrollArea)

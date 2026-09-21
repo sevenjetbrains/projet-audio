@@ -80,7 +80,7 @@ class WaveformWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(160)
+        self.setMinimumHeight(110)  # plancher sur petit écran ; ailleurs la waveform prend toute la place libre
         self.setMouseTracking(True)  # le survol des bornes de la sélection change le curseur
 
         self._wav_path: str | None = None

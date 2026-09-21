@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QFrame,
     QProgressDialog,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -63,8 +65,16 @@ from app.ui.welcome_view import WelcomeView
 from app.utils.time_utils import format_timecode, format_timecode_fr
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
+# Largeurs voulues des colonnes latérales, et le minimum en deçà duquel elles deviennent
+# illisibles. Sur un écran trop étroit pour la somme des trois colonnes, les deux latérales
+# sont rognées à parts égales : mieux vaut des colonnes un peu plus serrées qu'une fenêtre
+# plus large que l'écran, dont Windows coupe purement et simplement le bord droit.
 _SIDE_PANEL_WIDTH = 410
+_SIDE_PANEL_MIN_WIDTH = 320
 _RIGHT_PANEL_WIDTH = 360
+_RIGHT_PANEL_MIN_WIDTH = 290
+_CENTER_PANEL_MIN_WIDTH = 590
+_WINDOW_SIZE = (1440, 900)
 _AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
 _SAVE_STATE_REFRESH_MS = 30 * 1000
 _WAVEFORM_HINT = "clic = lecture · glisser = sélection"
@@ -80,7 +90,8 @@ class MainWindow(QMainWindow):
     def __init__(self, ffmpeg_binaries: FFmpegBinaries) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1440, 900)
+        self._side_width, self._right_width = self._column_widths()
+        self.resize(*self._fitted_size())
         self.setAcceptDrops(True)
 
         self._video_panel = VideoPanel(ffmpeg_binaries)
@@ -223,20 +234,61 @@ class MainWindow(QMainWindow):
             trailing=(self._theme_toggle_action, self._shortcuts_action),
         )
 
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-        body.addWidget(self._build_side_panel())
-        body.addWidget(self._build_center_panel(), 1)
-        body.addWidget(self._build_right_panel())
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self._build_side_panel())
+        body_layout.addWidget(self._build_center_panel(), 1)
+        body_layout.addWidget(self._build_right_panel())
+
+        # Sur un écran plus court que la mise en page, mieux vaut faire défiler le corps que
+        # laisser Windows rogner le bas de la fenêtre (barre d'état et boutons compris).
+        scroller = QScrollArea()
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QFrame.Shape.NoFrame)
+        scroller.setWidget(body)
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(toolbar)
-        layout.addLayout(body, 1)
+        layout.addWidget(scroller, 1)
         return central
+
+    @staticmethod
+    def _available_size() -> tuple[int, int]:
+        """Zone de travail de l'écran (hors barre des tâches), ou une valeur confortable à défaut."""
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return _WINDOW_SIZE
+        area = screen.availableGeometry()
+        return area.width(), area.height()
+
+    def _fitted_size(self) -> tuple[int, int]:
+        """Taille de départ, jamais plus grande que la zone de travail de l'écran."""
+        available_width, available_height = self._available_size()
+        return min(_WINDOW_SIZE[0], available_width), min(_WINDOW_SIZE[1], available_height)
+
+    @property
+    def needs_maximised_start(self) -> bool:
+        """Vrai quand l'écran est plus petit que la mise en page voulue : autant l'occuper en entier."""
+        available_width, available_height = self._available_size()
+        return available_width < _WINDOW_SIZE[0] or available_height < _WINDOW_SIZE[1]
+
+    @staticmethod
+    def _column_widths() -> tuple[int, int]:
+        """Largeurs des colonnes latérales, rognées à parts égales si l'écran est trop étroit."""
+        available_width, _height = MainWindow._available_size()
+        surplus = available_width - (_SIDE_PANEL_WIDTH + _RIGHT_PANEL_WIDTH + _CENTER_PANEL_MIN_WIDTH)
+        if surplus >= 0:
+            return _SIDE_PANEL_WIDTH, _RIGHT_PANEL_WIDTH
+        trim = (-surplus + 1) // 2
+        return (
+            max(_SIDE_PANEL_WIDTH - trim, _SIDE_PANEL_MIN_WIDTH),
+            max(_RIGHT_PANEL_WIDTH - trim, _RIGHT_PANEL_MIN_WIDTH),
+        )
 
     def _build_side_panel(self) -> QWidget:
         save_state_card, save_state_layout = card_layout("soft", spacing=3, margin=12)
@@ -245,7 +297,7 @@ class MainWindow(QMainWindow):
 
         panel = QWidget()
         panel.setObjectName("sidePanel")
-        panel.setFixedWidth(_SIDE_PANEL_WIDTH)
+        panel.setFixedWidth(self._side_width)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(14)
@@ -290,8 +342,8 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         panel.setObjectName("centerPanel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(9)
         layout.addLayout(self._build_waveform_header())
         layout.addWidget(self._waveform_overview)
         layout.addWidget(self._waveform_widget, 1)
@@ -304,7 +356,7 @@ class MainWindow(QMainWindow):
     def _build_right_panel(self) -> QWidget:
         panel = QWidget()
         panel.setObjectName("rightPanel")
-        panel.setFixedWidth(_RIGHT_PANEL_WIDTH)
+        panel.setFixedWidth(self._right_width)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._sequence_list)
