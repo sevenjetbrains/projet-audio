@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Dernier point de reprise : commit `a903855` sur `main` (github.com/sevenjetbrains/projet-audio), 623 tests verts (`pytest`).
+Dernier point de reprise : commit `717ea76` sur `main` (github.com/sevenjetbrains/projet-audio), 651 tests verts (`pytest`).
 
 **Fait avant cette session :** tout le pipeline (extraction, sélection, séquences, traitement audio non destructif, fusion, export multi-formats, projet .acsproject, undo/redo, autosave, thèmes, raccourcis + aide F1), puis la maquette de la fenêtre principale, le lecteur vidéo intégré, le plein écran avec barre de contrôle, l'aperçu fluide (copie allégée), l'écoute de la sélection, la boucle, les poignées de bornes sur la waveform, l'ajustement/division des séquences existantes et la comparaison A/B.
 
@@ -31,6 +31,12 @@ Dernier point de reprise : commit `a903855` sur `main` (github.com/sevenjetbrain
 - Aperçu « Écouter avant / après » : `audio_processor.build_preview()` (15 s, brut + traité, deux fichiers fixes réécrits), `app/ui/preview_strip.py` (les deux formes d'onde côte à côte + tête de lecture), lecteur `QMediaPlayer` propre au panneau qui enchaîne brut → traité.
 - Profils enregistrés : `app/services/custom_profiles.py` (`custom_profiles.json`, ignoré par git), bouton « Enregistrer comme profil… », suppression par clic droit sur la vignette.
 
+**Fait ensuite (fenêtre « Fusion et export », troisième maquette) :**
+- `export_dialog.py` refait en cartes : mode de fusion (le fondu enchaîné se règle désormais ici et est réécrit dans `project.crossfade_duration`), format en `SegmentedControl(columns=3)` + qualité + échantillonnage, aperçu du résultat fusionné, « ce qui est exporté », destination, progression.
+- `MergedWaveStrip` (dans `preview_strip.py`) : forme d'onde du résultat avec les jonctions peintes en clair ; `ExportDialog._junction_fractions()` les calcule depuis les durées et le fondu.
+- Export interruptible : `export_audio`/`apply_filters` prennent `should_cancel`, `export_project`/`export_sequences_separately` le vérifient entre les étapes et annoncent l'étape via `on_stage`, `ExportWorker` (workers/ffmpeg_worker.py) émet `cancelled` au lieu de `failed`.
+- `export_audio(..., sample_rate=)` ajoute `-ar` ; temps restant estimé depuis le temps écoulé (`QElapsedTimer`).
+
 **Prochaine étape :** aucune identifiée — demander à l'utilisateur, ou proposer une amélioration (pistes non traitées : export d'un rapport/liste des séquences, recherche-filtre dans la liste, aimantation des bornes sur les silences détectés ou sur un passage par zéro).
 
 **Pièges connus :**
@@ -43,6 +49,8 @@ Dernier point de reprise : commit `a903855` sur `main` (github.com/sevenjetbrain
 - Tester la visibilité d'une carte d'un écran non affiché demande `isVisibleTo(parent)`, pas `isVisible()`.
 - Ne pas écrire une séquence d'échappement `backslash-n` dans une chaîne Python passée par heredoc à `python -` : elle est convertie en vrai saut de ligne avant d'arriver à Python, et un `str.replace` ciblant ce littéral échoue. Passer par une expression régulière sur les lignes.
 - La fenêtre de traitement ne se désactive plus en bloc sans séquence : la croix et « Annuler » restent actifs, sinon la fenêtre ne pourrait plus se fermer. Voir `_set_editing_enabled`.
+- Une fenêtre qui importe une fonction de service par son nom ne voit pas un `monkeypatch` du module de service : patcher `app.ui.<fenêtre>.<fonction>`.
+- `should_cancel` est consulté pendant l'encodage, pas seulement entre deux étapes : un test qui compte les appels annule plus tôt qu'il ne croit.
 - `SliderRow.set_value()` est silencieux (c'est un chargement) ; simuler une édition utilisateur dans un test demande `row.slider.setValue(...)`.
 - Les raccourcis à une seule touche (`I`, `O`, `L`, `M`, `F`) sont des `QShortcut` de fenêtre : ils volent la frappe aux champs de saisie non modaux. Le renommage passe par un `QInputDialog` modal, donc sans conflit — garder cette contrainte en tête avant d'ajouter un champ éditable en ligne.
 
