@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Dernier point de reprise : commit `9df3a1e` sur `main` (github.com/sevenjetbrains/projet-audio), 557 tests verts (`pytest`).
+Dernier point de reprise : commit `a903855` sur `main` (github.com/sevenjetbrains/projet-audio), 623 tests verts (`pytest`).
 
 **Fait avant cette session :** tout le pipeline (extraction, sélection, séquences, traitement audio non destructif, fusion, export multi-formats, projet .acsproject, undo/redo, autosave, thèmes, raccourcis + aide F1), puis la maquette de la fenêtre principale, le lecteur vidéo intégré, le plein écran avec barre de contrôle, l'aperçu fluide (copie allégée), l'écoute de la sélection, la boucle, les poignées de bornes sur la waveform, l'ajustement/division des séquences existantes et la comparaison A/B.
 
@@ -24,6 +24,13 @@ Dernier point de reprise : commit `9df3a1e` sur `main` (github.com/sevenjetbrain
 - Progression de l'import sur l'accueil, annulable : `extract_audio(..., should_cancel=...)` lève `FFmpegCancelled`, `ExtractAudioWorker.cancel()`, `VideoPanel.cancel_extraction()` nettoie le projet à demi créé.
 - Nouveautés transverses : `app/utils/date_utils.py` (dates FR), jetons `warning`/`warning_soft`, icônes `upload`/`folder`/`alert`, `set_label_icon(..., size=)`, `design.kbd()` et `design.labelled_icon_button()`.
 
+**Fait ensuite (fenêtre de traitement audio, d'après une seconde maquette) :**
+- Réglages ajoutés au modèle : `compression_ratio`, `compression_threshold_db`, `normalize_peak_dbfs`. La normalisation « peak » était en fait `dynaudnorm` (un niveleur dynamique) : c'est maintenant une mesure `volumedetect` (`FFmpegService.measure_peak_db`) suivie d'un gain constant ; `build_filter_chain(..., measured_peak_db=None)` saute l'étape sans mesure plutôt que d'inventer un gain.
+- `app/ui/controls.py` : `ToggleSwitch` (peint), `SegmentedControl`, `SliderRow` (QSlider entier → valeur décimale), `ProfileCard`. Qt n'a ni interrupteur ni groupe segmenté.
+- `audio_processing_panel.py` entièrement redessiné : en-tête, colonne de profils, cartes thématiques, pied de page. `ProcessingDialog` n'est plus qu'un hôte sans marge. Un seul bouton « Appliquer » (la sélection entière s'il y a plusieurs séquences) : `Ctrl+Maj+Entrée` a disparu.
+- Aperçu « Écouter avant / après » : `audio_processor.build_preview()` (15 s, brut + traité, deux fichiers fixes réécrits), `app/ui/preview_strip.py` (les deux formes d'onde côte à côte + tête de lecture), lecteur `QMediaPlayer` propre au panneau qui enchaîne brut → traité.
+- Profils enregistrés : `app/services/custom_profiles.py` (`custom_profiles.json`, ignoré par git), bouton « Enregistrer comme profil… », suppression par clic droit sur la vignette.
+
 **Prochaine étape :** aucune identifiée — demander à l'utilisateur, ou proposer une amélioration (pistes non traitées : export d'un rapport/liste des séquences, recherche-filtre dans la liste, aimantation des bornes sur les silences détectés ou sur un passage par zéro).
 
 **Pièges connus :**
@@ -35,6 +42,8 @@ Dernier point de reprise : commit `9df3a1e` sur `main` (github.com/sevenjetbrain
 - `deleteLater()` seul ne retire pas un widget de l'arbre : les vignettes de projets récents sont détachées par `setParent(None)` avant, sinon elles restent visibles (et dans `findChildren`) jusqu'au prochain tour de boucle.
 - Tester la visibilité d'une carte d'un écran non affiché demande `isVisibleTo(parent)`, pas `isVisible()`.
 - Ne pas écrire une séquence d'échappement `backslash-n` dans une chaîne Python passée par heredoc à `python -` : elle est convertie en vrai saut de ligne avant d'arriver à Python, et un `str.replace` ciblant ce littéral échoue. Passer par une expression régulière sur les lignes.
+- La fenêtre de traitement ne se désactive plus en bloc sans séquence : la croix et « Annuler » restent actifs, sinon la fenêtre ne pourrait plus se fermer. Voir `_set_editing_enabled`.
+- `SliderRow.set_value()` est silencieux (c'est un chargement) ; simuler une édition utilisateur dans un test demande `row.slider.setValue(...)`.
 - Les raccourcis à une seule touche (`I`, `O`, `L`, `M`, `F`) sont des `QShortcut` de fenêtre : ils volent la frappe aux champs de saisie non modaux. Le renommage passe par un `QInputDialog` modal, donc sans conflit — garder cette contrainte en tête avant d'ajouter un champ éditable en ligne.
 
 Voir aussi [[feedback-commit-push-autonomy]] et [[feedback-autonomous-phases]].
