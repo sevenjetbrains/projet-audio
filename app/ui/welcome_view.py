@@ -27,8 +27,10 @@ from app.ui.icons import set_label_icon
 from app.utils.date_utils import format_elapsed, format_folder, format_moment
 
 # Même largeur que le panneau gauche de l'éditeur ; le pied de page (« Raccourcis : … ») y tient
-# tout juste, une colonne plus étroite le tronquerait.
+# tout juste, une colonne plus étroite le tronquerait. Sur un écran étroit, la colonne cède
+# quand même : mieux vaut un pied de page serré qu'une colonne moitié hors de l'écran.
 _SIDE_WIDTH = 410
+_SIDE_MIN_WIDTH = 260
 _TITLE = "Découpez et nettoyez l'audio d'une vidéo"
 _INTRO = (
     "Importez une vidéo : AudioCut Studio en extrait la piste audio, vous la découpez en séquences, "
@@ -91,6 +93,7 @@ class WelcomeView(QWidget):
         self._recent_layout.setContentsMargins(0, 0, 0, 0)
         self._recent_layout.setSpacing(10)
         self._recent_empty = label("Aucun projet ouvert récemment.", "hintLabel")
+        self._recent_empty.setWordWrap(True)
         self._recent_layout.addWidget(self._recent_empty)
         self._progress_card = self._build_progress_card()
 
@@ -108,10 +111,14 @@ class WelcomeView(QWidget):
         intro = label(_INTRO, "heroText")
         intro.setWordWrap(True)
         intro.setMaximumWidth(940)
+        # Un paragraphe replié peut se resserrer autant qu'il faut : c'est la zone de dépôt,
+        # pas le texte, qui fixe la largeur utile de la colonne.
+        intro.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(48, 44, 48, 28)
+        layout.setContentsMargins(32, 36, 32, 24)
         layout.setSpacing(16)
         layout.addWidget(title)
         layout.addWidget(intro)
@@ -144,7 +151,9 @@ class WelcomeView(QWidget):
         self._open_button.clicked.connect(self.open_project_requested.emit)
         for button in (self._import_button, self._open_button):
             button.setMinimumHeight(38)
-            button.setMinimumWidth(180)
+            # Largeur confortable, mais qui cède sur un écran étroit plutôt que de pousser
+            # la colonne des projets récents hors de la fenêtre.
+            button.setMinimumWidth(140)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(12)
@@ -161,7 +170,7 @@ class WelcomeView(QWidget):
         chips.addStretch(1)
 
         layout = QVBoxLayout(zone)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(16, 24, 16, 24)
         layout.setSpacing(12)
         layout.addStretch(1)
         layout.addWidget(icon_tile, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -259,7 +268,10 @@ class WelcomeView(QWidget):
     def _build_side(self) -> QWidget:
         panel = QWidget()
         panel.setObjectName("welcomeSide")
-        panel.setFixedWidth(_SIDE_WIDTH)
+        # Largeur de départ au minimum : c'est `resizeEvent` qui l'élargit dès que la page
+        # est affichée. Poser 410 ici en ferait le minimum de toute la page d'accueil.
+        panel.setFixedWidth(_SIDE_MIN_WIDTH)
+        self._side_panel = panel
         panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
         layout = QVBoxLayout(panel)
@@ -271,6 +283,13 @@ class WelcomeView(QWidget):
         layout.addStretch(1)
         layout.addWidget(self._build_shortcuts_footer())
         return panel
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # La colonne suit la largeur réelle de la page, jamais une estimation de l'écran :
+        # c'est la seule mesure fiable quand l'affichage est à une échelle autre que 100 %.
+        # Plafonnée au tiers, sinon il ne reste plus assez de place à la zone de dépôt.
+        self._side_panel.setFixedWidth(min(_SIDE_WIDTH, max(_SIDE_MIN_WIDTH, self.width() // 3)))
 
     # --- API ------------------------------------------------------------------
 

@@ -29,12 +29,7 @@ def main() -> int:
         return 1
 
     window = MainWindow(binaries)
-    # Écran plus petit que la mise en page : l'ouvrir en plein écran évite de démarrer
-    # sur une fenêtre où les colonnes latérales demandent déjà de défiler.
-    if window.needs_maximised_start:
-        window.showMaximized()
-    else:
-        window.show()
+    window.show()
 
     return app.exec()
 

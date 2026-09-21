@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QProgressDialog,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -70,11 +71,12 @@ from app.workers.ffmpeg_worker import FFmpegTaskWorker
 # sont rognées à parts égales : mieux vaut des colonnes un peu plus serrées qu'une fenêtre
 # plus large que l'écran, dont Windows coupe purement et simplement le bord droit.
 _SIDE_PANEL_WIDTH = 410
-_SIDE_PANEL_MIN_WIDTH = 320
+_SIDE_PANEL_MIN_WIDTH = 300
 _RIGHT_PANEL_WIDTH = 360
-_RIGHT_PANEL_MIN_WIDTH = 290
+_RIGHT_PANEL_MIN_WIDTH = 270
 _CENTER_PANEL_MIN_WIDTH = 590
 _WINDOW_SIZE = (1440, 900)
+_SCREEN_MARGIN = 48  # marge laissée autour de la fenêtre sur un écran juste à la bonne taille
 _AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
 _SAVE_STATE_REFRESH_MS = 30 * 1000
 _WAVEFORM_HINT = "clic = lecture · glisser = sélection"
@@ -220,9 +222,19 @@ class MainWindow(QMainWindow):
     def _build_central_widget(self) -> QWidget:
         """Deux pages : l'accueil tant qu'aucun projet n'est ouvert, puis l'éditeur."""
         self._pages = QStackedWidget()
-        self._pages.addWidget(self._welcome_view)
+        self._pages.addWidget(self._scrollable(self._welcome_view))
         self._pages.addWidget(self._build_editor())
         return self._pages
+
+    @staticmethod
+    def _scrollable(content: QWidget) -> QScrollArea:
+        """Enveloppe défilante : une fenêtre plus petite que la mise en page fait défiler,
+        au lieu de laisser le gestionnaire de fenêtres en rogner le bord."""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setWidget(content)
+        return area
 
     def _build_editor(self) -> QWidget:
         toolbar = AppToolBar(
@@ -242,12 +254,7 @@ class MainWindow(QMainWindow):
         body_layout.addWidget(self._build_center_panel(), 1)
         body_layout.addWidget(self._build_right_panel())
 
-        # Sur un écran plus court que la mise en page, mieux vaut faire défiler le corps que
-        # laisser Windows rogner le bas de la fenêtre (barre d'état et boutons compris).
-        scroller = QScrollArea()
-        scroller.setWidgetResizable(True)
-        scroller.setFrameShape(QFrame.Shape.NoFrame)
-        scroller.setWidget(body)
+        scroller = self._scrollable(body)
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -259,23 +266,29 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _available_size() -> tuple[int, int]:
-        """Zone de travail de l'écran (hors barre des tâches), ou une valeur confortable à défaut."""
+        """Zone de travail de l'écran, dans la même unité que les tailles de widgets.
+
+        Sur un écran à échelle (125 % ici), la géométrie rapportée est en pixels de l'écran
+        alors que les widgets se dimensionnent en pixels logiques : comparer les deux sans
+        diviser par le facteur d'échelle fait croire à un écran 25 % plus large qu'il n'est."""
         screen = QApplication.primaryScreen()
         if screen is None:
             return _WINDOW_SIZE
         area = screen.availableGeometry()
-        return area.width(), area.height()
+        ratio = screen.devicePixelRatio() or 1.0
+        return int(area.width() / ratio), int(area.height() / ratio)
 
     def _fitted_size(self) -> tuple[int, int]:
-        """Taille de départ, jamais plus grande que la zone de travail de l'écran."""
-        available_width, available_height = self._available_size()
-        return min(_WINDOW_SIZE[0], available_width), min(_WINDOW_SIZE[1], available_height)
+        """Taille de départ, tenant strictement dans la zone de travail de l'écran.
 
-    @property
-    def needs_maximised_start(self) -> bool:
-        """Vrai quand l'écran est plus petit que la mise en page voulue : autant l'occuper en entier."""
+        La marge n'est pas un confort : une fenêtre demandée à la taille exacte de l'écran
+        finit maximisée par Windows, qui la fait alors déborder de quelques pixels de chaque
+        côté — et ce sont les bords du contenu qui disparaissent."""
         available_width, available_height = self._available_size()
-        return available_width < _WINDOW_SIZE[0] or available_height < _WINDOW_SIZE[1]
+        return (
+            min(_WINDOW_SIZE[0], available_width - _SCREEN_MARGIN),
+            min(_WINDOW_SIZE[1], available_height - _SCREEN_MARGIN),
+        )
 
     @staticmethod
     def _column_widths() -> tuple[int, int]:
@@ -322,7 +335,11 @@ class MainWindow(QMainWindow):
         header.addWidget(self._zoom_label)
         header.addWidget(zoom_in_button)
         header.addSpacing(10)
-        header.addWidget(label(_WAVEFORM_HINT, "hintLabel"))
+        # Une aide décorative ne doit pas imposer sa largeur à tout le panneau central :
+        # sur un écran étroit, c'est elle qui cède en premier.
+        hint = label(_WAVEFORM_HINT, "hintLabel")
+        hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        header.addWidget(hint)
         header.addStretch(1)
         header.addWidget(self._position_label)
         header.addWidget(self._duration_label)
@@ -632,7 +649,7 @@ class MainWindow(QMainWindow):
     def _show_welcome(self) -> None:
         """Revient à l'accueil et y rafraîchit la liste des projets récents."""
         self._welcome_view.set_recent_projects(describe_recent_projects())
-        self._pages.setCurrentWidget(self._welcome_view)
+        self._pages.setCurrentIndex(0)
 
     def _update_project_menus(self) -> None:
         """Grise les menus qui n'ont aucun sens sans projet (comme sur la maquette d'accueil)."""

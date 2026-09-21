@@ -209,7 +209,9 @@ def _menu_state(window) -> dict[str, bool]:
 
 
 def test_the_window_opens_on_the_welcome_page(window):
-    assert window._pages.currentWidget() is window._welcome_view
+    # L'accueil est enveloppé dans une zone défilante : on vérifie la page, pas l'enveloppe.
+    assert window._pages.currentIndex() == 0
+    assert window._pages.currentWidget().widget() is window._welcome_view
     assert window.menuBar().cornerWidget().text() == "Aucun projet ouvert"
 
 
@@ -230,7 +232,7 @@ def test_loading_audio_switches_to_the_editor(window, monkeypatch):
 
     window._on_audio_ready("C:/x/source.wav", 10.0)
 
-    assert window._pages.currentWidget() is not window._welcome_view
+    assert window._pages.currentIndex() == 1
 
 
 def test_recent_projects_are_pushed_to_the_welcome_screen(qtbot, monkeypatch, tmp_path):
