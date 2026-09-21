@@ -521,6 +521,12 @@ QScrollBar::add-page, QScrollBar::sub-page {
 
 /* --- Dialogues ------------------------------------------------------------ */
 
+/* Zones défilantes : le fond du dialogue traverse. Sans cette règle, le fond du viewport prenait la couleur claire
+   de la palette système (gris clair derrière des cartes sombres en thème sombre). */
+QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {
+    background-color: transparent;
+}
+
 QDialog, QMessageBox {
     background-color: $surface;
 }

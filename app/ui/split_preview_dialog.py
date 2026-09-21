@@ -7,7 +7,6 @@ Une entrée est `(début, fin)` ou `(début, fin, nom)` : dès qu'un nom est don
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
@@ -17,17 +16,20 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.ui.screen_fit import ScreenFittedDialog
 from app.utils.time_utils import format_timecode
 
 _COLUMNS = ("", "N°", "Début", "Fin", "Durée")
 _NAME_COLUMN = "Nom"
 
 
-class SplitPreviewDialog(QDialog):
+class SplitPreviewDialog(ScreenFittedDialog):
+    PREFERRED_SIZE = (520, 420)
+    MINIMUM_SIZE = (360, 280)
+
     def __init__(self, ranges: list[tuple], parent=None, title: str = "Passages détectés") -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(520, 420)
         self._ranges = list(ranges)
 
         named = any(len(entry) > 2 and entry[2] for entry in self._ranges)

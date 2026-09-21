@@ -13,7 +13,6 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -35,6 +34,7 @@ from app.models.project import Project
 from app.services.export_service import export_project, export_sequences_separately, merge_sequences
 from app.services.ffmpeg_service import FFmpegService, wav_duration
 from app.ui.controls import SegmentedControl, SliderRow
+from app.ui.screen_fit import ScreenFittedDialog
 from app.ui.design import accent_button, card_layout, icon_button, label
 from app.ui.icons import set_button_icon
 from app.ui.preview_strip import MergedWaveStrip
@@ -80,12 +80,13 @@ def _card_header(title: str, trailing: QWidget | None = None) -> QHBoxLayout:
     return row
 
 
-class ExportDialog(QDialog):
+class ExportDialog(ScreenFittedDialog):
+    PREFERRED_SIZE = _PREFERRED_SIZE
+    MINIMUM_SIZE = _MINIMUM_SIZE
+
     def __init__(self, project: Project, ffmpeg_service: FFmpegService, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Fusion et export — AudioCut Studio")
-        self.setMinimumSize(*_MINIMUM_SIZE)
-        self.resize(*_PREFERRED_SIZE)
 
         self._project = project
         self._ffmpeg_service = ffmpeg_service

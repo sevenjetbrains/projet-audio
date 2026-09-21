@@ -50,6 +50,7 @@ from app.ui.design import card_layout, flat_button, icon_button, label, section_
 from app.ui.export_dialog import ExportDialog
 from app.ui.icons import set_icon_palette
 from app.ui.processing_dialog import ProcessingDialog
+from app.ui.screen_fit import available_rect, available_size, fit_size, position_within
 from app.ui.selection_card import SelectionCard
 from app.ui.sequence_list import SequenceListWidget
 from app.ui.shortcuts import set_button_shortcut, shortcuts_help_html
@@ -76,7 +77,6 @@ _RIGHT_PANEL_WIDTH = 360
 _RIGHT_PANEL_MIN_WIDTH = 270
 _CENTER_PANEL_MIN_WIDTH = 590
 _WINDOW_SIZE = (1440, 900)
-_SCREEN_MARGIN = 48  # marge laissée autour de la fenêtre sur un écran juste à la bonne taille
 _AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
 _SAVE_STATE_REFRESH_MS = 30 * 1000
 _WAVEFORM_HINT = "clic = lecture · glisser = sélection"
@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         self._side_width, self._right_width = self._column_widths()
         self.resize(*self._fitted_size())
         self.setAcceptDrops(True)
+        self._placed_on_screen = False
 
         self._video_panel = VideoPanel(ffmpeg_binaries)
         self._welcome_view = WelcomeView()
@@ -266,29 +267,36 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _available_size() -> tuple[int, int]:
-        """Zone de travail de l'écran, dans la même unité que les tailles de widgets.
+        """Zone de travail de l'écran (barre des tâches exclue), en pixels logiques comme les tailles de widgets.
 
-        Sur un écran à échelle (125 % ici), la géométrie rapportée est en pixels de l'écran
-        alors que les widgets se dimensionnent en pixels logiques : comparer les deux sans
-        diviser par le facteur d'échelle fait croire à un écran 25 % plus large qu'il n'est."""
-        screen = QApplication.primaryScreen()
-        if screen is None:
-            return _WINDOW_SIZE
-        area = screen.availableGeometry()
-        ratio = screen.devicePixelRatio() or 1.0
-        return int(area.width() / ratio), int(area.height() / ratio)
+        Qt 6 fournit déjà cette géométrie en pixels logiques : la diviser encore par le facteur d'échelle
+        (125 % ici) faisait croire à un écran plus petit qu'il n'est, donc à une fenêtre et des colonnes
+        inutilement réduites. La règle est partagée avec les fenêtres de dialogue (voir `screen_fit`)."""
+        return available_size(None)
+
+    def showEvent(self, event) -> None:
+        if not event.spontaneous() and not self._placed_on_screen:
+            self._placed_on_screen = True
+            self._place_on_screen()
+        super().showEvent(event)
+
+    def _place_on_screen(self) -> None:
+        """Première ouverture : la fenêtre est ramenée entièrement dans la zone de travail de son écran (elle peut
+        s'ouvrir sur un autre écran que l'écran principal, ou avec une position qui déborde)."""
+        if self.isMaximized() or self.isFullScreen():
+            return
+        area = available_rect(self)
+        self.resize(fit_size((self.width(), self.height()), (0, 0), area).size)
+        self.move(position_within(self.size(), area))
 
     def _fitted_size(self) -> tuple[int, int]:
         """Taille de départ, tenant strictement dans la zone de travail de l'écran.
 
-        La marge n'est pas un confort : une fenêtre demandée à la taille exacte de l'écran
-        finit maximisée par Windows, qui la fait alors déborder de quelques pixels de chaque
-        côté — et ce sont les bords du contenu qui disparaissent."""
-        available_width, available_height = self._available_size()
-        return (
-            min(_WINDOW_SIZE[0], available_width - _SCREEN_MARGIN),
-            min(_WINDOW_SIZE[1], available_height - _SCREEN_MARGIN),
-        )
+        La marge n'est pas un confort : une fenêtre demandée à la taille exacte de l'écran finit maximisée par
+        Windows, qui la fait alors déborder de quelques pixels de chaque côté — et ce sont les bords du contenu
+        qui disparaissent. La règle (marge, place de la barre de titre) est celle de toutes les fenêtres."""
+        fitted = fit_size(_WINDOW_SIZE, (0, 0), available_rect(self))
+        return fitted.size.width(), fitted.size.height()
 
     @staticmethod
     def _column_widths() -> tuple[int, int]:
