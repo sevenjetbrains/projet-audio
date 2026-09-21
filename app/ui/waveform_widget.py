@@ -7,15 +7,19 @@ la séquence sélectionnée passe en accent, et une règle temporelle occupe le 
 from typing import NamedTuple
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QTimer, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
-from app.audio.waveform import compute_peaks
+from app.audio.waveform import PeakPyramid, compute_peaks
 from app.config.themes import Theme, get_theme
 from app.workers.waveform_worker import WaveformWorker
 
 _DRAG_THRESHOLD_PX = 4
+# Sans pyramide (chargement en cours), on ne relit directement le fichier que pour une vue aussi courte : plus long,
+# le calcul bloquerait l'interface ; on garde alors l'affichage actuel jusqu'à l'arrivée de la pyramide.
+_DIRECT_READ_MAX_SECONDS = 20.0
+_RESIZE_DEBOUNCE_MS = 25
 _HANDLE_GRAB_PX = 7  # distance au bord d'une sélection à laquelle on peut le saisir
 _MIN_SELECTION_SECONDS = 0.02  # les deux bornes ne peuvent ni se croiser ni se confondre
 _MIN_VIEW_SPAN_SECONDS = 0.2
@@ -104,7 +108,15 @@ class WaveformWidget(QWidget):
         self._hover_marker: str | None = None
 
         self._worker: WaveformWorker | None = None
+        self._pyramid: PeakPyramid | None = None
         self._theme: Theme = get_theme("")
+
+        # Un redimensionnement envoie des dizaines d'événements : on ne recalcule qu'une fois la rafale passée
+        # (l'onde déjà calculée est simplement étirée entre-temps).
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(_RESIZE_DEBOUNCE_MS)
+        self._resize_timer.timeout.connect(self._recompute_peaks_sync)
 
     # --- API publique ---------------------------------------------------
 
@@ -118,6 +130,7 @@ class WaveformWidget(QWidget):
         self._view_start = 0.0
         self._view_end = duration
         self._peaks = None
+        self._pyramid = None
         self._selection = None
         self._playhead = 0.0
         self._status_text = "Chargement de la waveform…"
@@ -127,6 +140,7 @@ class WaveformWidget(QWidget):
         target_width = max(self.width(), 400)
         self._worker = WaveformWorker(wav_path, target_width)
         self._worker.peaks_ready.connect(self._on_peaks_ready)
+        self._worker.pyramid_ready.connect(self._on_pyramid_ready)
         self._worker.failed.connect(self._on_peaks_failed)
         self._worker.start()
 
@@ -243,18 +257,36 @@ class WaveformWidget(QWidget):
         self._status_text = message
         self.update()
 
+    def _on_pyramid_ready(self, pyramid: PeakPyramid) -> None:
+        self._pyramid = pyramid
+        if self._view_start > 0.0 or self._view_end < self._duration:
+            self._recompute_peaks_sync()  # un zoom demandé pendant le chargement peut enfin être affiné
+
+    def _peaks_for_view(self, width: int) -> np.ndarray | None:
+        """Peaks de la vue courante sans jamais bloquer l'interface ; None si on doit garder l'affichage actuel."""
+        if self._pyramid is not None:
+            peaks = self._pyramid.peaks(self._view_start, self._view_end, width)
+            if peaks is not None:
+                return peaks
+            # Vue plus fine que la pyramide : la plage est courte, la lire directement est rapide.
+            return compute_peaks(self._wav_path, width, self._view_start, self._view_end)
+        if self._view_end - self._view_start <= _DIRECT_READ_MAX_SECONDS:
+            return compute_peaks(self._wav_path, width, self._view_start, self._view_end)
+        return None
+
     def _recompute_peaks_sync(self) -> None:
         if not self._wav_path:
             self.update()
             return
-        target_width = max(self.width(), 1)
-        self._peaks = compute_peaks(self._wav_path, target_width, self._view_start, self._view_end)
+        peaks = self._peaks_for_view(max(self.width(), 1))
+        if peaks is not None:
+            self._peaks = peaks
         self.update()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._wav_path and self._peaks is not None:
-            self._recompute_peaks_sync()
+            self._resize_timer.start()
 
     # --- Conversions temps <-> pixels ------------------------------------
 

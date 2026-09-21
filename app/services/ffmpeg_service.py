@@ -6,9 +6,11 @@ bloquantes et en pur Python — ce sont les workers (app/workers/) qui les
 rendent asynchrones pour ne pas geler l'interface Qt.
 """
 
+import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import wave
 from collections.abc import Callable
@@ -37,6 +39,24 @@ def wav_duration(path: str) -> float:
             return wav_file.getnframes() / wav_file.getframerate()
     except (wave.Error, EOFError, OSError, ZeroDivisionError):
         return 0.0
+
+
+def _background_priority_options(low_priority: bool) -> dict:
+    """Options de `Popen` qui rendent un traitement long moins prioritaire que l'interface.
+
+    Un encodage lourd (aperçu d'une vidéo 4K de 26 minutes) occupait tous les cœurs et privait l'application de
+    processeur : redimensionner la fenêtre devenait saccadé. En priorité basse, l'interface passe toujours devant.
+    """
+    if not low_priority:
+        return {}
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.BELOW_NORMAL_PRIORITY_CLASS}
+    return {"preexec_fn": lambda: os.nice(10)}
+
+
+def background_thread_count() -> int:
+    """Threads laissés à un traitement de fond : la moitié des cœurs, pour en garder pour l'interface."""
+    return max(1, (os.cpu_count() or 2) // 2)
 
 
 class FFmpegExecutionError(RuntimeError):
@@ -321,16 +341,17 @@ class FFmpegService:
         jamais être pris pour une copie complète.
         """
         partial = out_path + ".part.mp4"
+        threads = str(background_thread_count())
         cmd = [
-            self._ffmpeg_path, "-y", "-i", source_video_path,
-            "-vf", f"scale=-2:{height}",
+            self._ffmpeg_path, "-y", "-threads", threads, "-i", source_video_path,  # -threads avant -i : décodage
+            "-vf", f"scale=-2:{height}", "-threads", threads,  # … et après : encodage
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p",
             "-g", "6", "-keyint_min", "6", "-sc_threshold", "0",
             "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
             partial,
         ]
         try:
-            self._run(cmd, total_duration=total_duration, on_progress=on_progress)
+            self._run(cmd, total_duration=total_duration, on_progress=on_progress, low_priority=True)
             Path(partial).replace(out_path)
         finally:
             Path(partial).unlink(missing_ok=True)
@@ -341,6 +362,7 @@ class FFmpegService:
         total_duration: float = 0.0,
         on_progress: Callable[[float], None] | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        low_priority: bool = False,
     ) -> list[str]:
         process = subprocess.Popen(
             cmd,
@@ -349,6 +371,7 @@ class FFmpegService:
             text=True,
             encoding="utf-8",
             errors="replace",
+            **_background_priority_options(low_priority),
         )
 
         stderr_lines: list[str] = []
