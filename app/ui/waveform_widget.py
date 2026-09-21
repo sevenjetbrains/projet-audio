@@ -73,6 +73,8 @@ class WaveformWidget(QWidget):
     seek_requested = Signal(float)
     region_clicked = Signal(str)
     region_double_clicked = Signal(str)
+    marker_moved = Signal(str, float)
+    marker_double_clicked = Signal(str)
     selection_changed = Signal(float, float)
     view_changed = Signal(float, float)
 
@@ -98,6 +100,8 @@ class WaveformWidget(QWidget):
         self._dragging = False
         self._edge_drag: str | None = None  # « start » ou « end » pendant le déplacement d'une borne
         self._hover_edge: str | None = None
+        self._marker_drag: str | None = None  # id du repère tiré à la souris
+        self._hover_marker: str | None = None
 
         self._worker: WaveformWorker | None = None
         self._theme: Theme = get_theme("")
@@ -291,19 +295,31 @@ class WaveformWidget(QWidget):
             self._dragging = False
             self.setCursor(Qt.CursorShape.SplitHCursor)
             return
+        marker = self.marker_at(event.position().x())
+        if marker is not None and marker.marker_id:
+            self._marker_drag = marker.marker_id
+            self._drag_start_x = None
+            self._dragging = False
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            return
         self._drag_start_x = event.position().x()
         self._dragging = False
 
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self._duration <= 0:
             return
-        region = self.region_at(min(max(self._x_to_time(event.position().x()), 0.0), self._duration))
-        if region is not None and region.sequence_id:
-            self.region_double_clicked.emit(region.sequence_id)
+        marker = self.marker_at(event.position().x())
+        if marker is not None and marker.marker_id:
+            self.marker_double_clicked.emit(marker.marker_id)  # cible fine : prioritaire sur la zone
+        else:
+            region = self.region_at(min(max(self._x_to_time(event.position().x()), 0.0), self._duration))
+            if region is not None and region.sequence_id:
+                self.region_double_clicked.emit(region.sequence_id)
         # Le relâchement qui suit ce double-clic ne doit pas être traité comme un nouveau clic simple.
         self._drag_start_x = None
         self._dragging = False
         self._edge_drag = None
+        self._marker_drag = None
 
     def _move_edge(self, x: float) -> None:
         """Déplace la borne saisie sous la souris, sans croiser l'autre borne ni sortir de l'audio."""
@@ -321,27 +337,46 @@ class WaveformWidget(QWidget):
             self.selection_changed.emit(start, end)  # en direct : champs Début/Fin et boucle d'écoute suivent
             self.update()
 
+    def _move_marker(self, x: float) -> float:
+        """Déplace le repère saisi à l'abscisse `x` (affichage seul) et retourne sa nouvelle position."""
+        position = min(max(self._x_to_time(x), 0.0), self._duration)
+        for index, marker in enumerate(self._markers):
+            if marker.marker_id == self._marker_drag:
+                self._markers[index] = marker._replace(position=position)
+                break
+        self._markers.sort(key=lambda m: m.position)
+        self.update()
+        return position
+
     def _update_hover(self, x: float) -> None:
         edge = self.edge_at(x)
-        if edge == self._hover_edge:
+        marker = self.marker_at(x) if edge is None else None
+        marker_id = marker.marker_id if marker is not None else None
+        if (edge, marker_id) == (self._hover_edge, self._hover_marker):
             return
-        self._hover_edge = edge
-        if edge is None:
-            self.unsetCursor()
-        else:
+        self._hover_edge, self._hover_marker = edge, marker_id
+        if edge is not None:
             self.setCursor(Qt.CursorShape.SplitHCursor)
+        elif marker_id is not None:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.unsetCursor()
         self.update()
 
     def leaveEvent(self, event) -> None:
-        if self._edge_drag is None and self._hover_edge is not None:
-            self._hover_edge = None
-            self.unsetCursor()
-            self.update()
+        if self._edge_drag is None and self._marker_drag is None:
+            if self._hover_edge is not None or self._hover_marker is not None:
+                self._hover_edge = self._hover_marker = None
+                self.unsetCursor()
+                self.update()
         super().leaveEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         if self._edge_drag is not None:
             self._move_edge(event.position().x())
+            return
+        if self._marker_drag is not None:
+            self._move_marker(event.position().x())
             return
         if self._drag_start_x is None:
             self._update_hover(event.position().x())  # simple survol : curseur de redimensionnement près d'une borne
@@ -366,6 +401,13 @@ class WaveformWidget(QWidget):
             if self._hover_edge is None:
                 self.unsetCursor()
             self.update()
+            return
+        if self._marker_drag is not None:
+            marker_id = self._marker_drag
+            position = self._move_marker(event.position().x())
+            self._marker_drag = None
+            self._update_hover(event.position().x())
+            self.marker_moved.emit(marker_id, position)  # une fois à la fin : un seul pas d'undo
             return
         if self._drag_start_x is None:
             return
@@ -522,7 +564,8 @@ class WaveformWidget(QWidget):
             x = self._time_to_x(marker.position)
             if not -1 <= x <= width + 1:
                 continue  # hors de la portion visible (zoom)
-            painter.setPen(QPen(color, 1, Qt.PenStyle.DashLine))
+            active = bool(marker.marker_id) and marker.marker_id in (self._hover_marker, self._marker_drag)
+            painter.setPen(QPen(color, 2 if active else 1, Qt.PenStyle.DashLine))
             painter.drawLine(int(x), 0, int(x), height)
             self._paint_marker_flag(painter, marker, x, width, height, color, metrics)
         painter.restore()

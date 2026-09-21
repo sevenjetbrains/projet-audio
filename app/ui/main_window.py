@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -485,6 +486,8 @@ class MainWindow(QMainWindow):
         self._waveform_widget.selection_changed.connect(self._on_selection_changed)
         self._waveform_widget.region_clicked.connect(self._sequence_list.select_sequence)
         self._waveform_widget.region_double_clicked.connect(self._sequence_list.play_sequence)
+        self._waveform_widget.marker_moved.connect(self._on_marker_moved)
+        self._waveform_widget.marker_double_clicked.connect(self._rename_marker)
         self._waveform_widget.view_changed.connect(self._on_view_changed)
         self._waveform_overview.view_requested.connect(self._waveform_widget.set_view_range)
 
@@ -891,6 +894,50 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Sélection entre repères : {format_timecode_fr(start)} → {format_timecode_fr(end)} · Entrée pour créer la séquence",
             5000,
+        )
+
+    def _find_marker(self, marker_id: str):
+        """Repère du projet courant, ou None : un signal peut arriver après sa suppression (undo)."""
+        project = self._video_panel.project
+        if project is None:
+            return None
+        return next((marker for marker in project.markers if marker.id == marker_id), None)
+
+    def _on_marker_moved(self, marker_id: str, position: float) -> None:
+        """Repère tiré à la souris : le déplacement est enregistré en une seule étape annulable."""
+        project = self._video_panel.project
+        marker = self._find_marker(marker_id)
+        if marker is None:
+            return
+        old_position = marker.position
+        new_position = min(max(position, 0.0), self._source_duration)
+        if abs(new_position - old_position) < 1e-6:
+            self._update_waveform_markers()  # rien n'a bougé : on remet l'affichage sur le modèle
+            return
+        self._push_marker_command(
+            f"Déplacer le repère {marker.label}",
+            lambda: marker_service.move_marker(project, marker_id, new_position),
+            lambda: marker_service.move_marker(project, marker_id, old_position),
+        )
+        self.statusBar().showMessage(
+            f"{marker.label} déplacé à {format_timecode_fr(new_position)} · Ctrl+Z pour revenir", 4000
+        )
+
+    def _rename_marker(self, marker_id: str) -> None:
+        """Double-clic sur un repère : lui donner un nom parlant (« Question du public »…)."""
+        project = self._video_panel.project
+        marker = self._find_marker(marker_id)
+        if marker is None:
+            return
+        new_label, accepted = QInputDialog.getText(self, "Renommer le repère", "Nom du repère :", text=marker.label)
+        new_label = new_label.strip()
+        if not accepted or not new_label or new_label == marker.label:
+            return
+        old_label = marker.label
+        self._push_marker_command(
+            f"Renommer le repère {old_label}",
+            lambda: marker_service.rename_marker(project, marker_id, new_label),
+            lambda: marker_service.rename_marker(project, marker_id, old_label),
         )
 
     # --- Séquences -----------------------------------------------------------

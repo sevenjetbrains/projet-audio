@@ -258,3 +258,149 @@ def test_marker_actions_are_harmless_without_a_project(qtbot, monkeypatch):
     window._select_between_markers()
 
     assert window._waveform_widget._markers == []
+
+
+# --- Manipulation à la souris ------------------------------------------------
+
+
+def _drag(widget, from_x: float, to_x: float) -> None:
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    QTest.mousePress(widget, Qt.MouseButton.LeftButton, pos=QPoint(int(from_x), 60))
+    QTest.mouseMove(widget, QPoint(int(to_x), 60))
+    QTest.mouseRelease(widget, Qt.MouseButton.LeftButton, pos=QPoint(int(to_x), 60))
+
+
+def test_dragging_a_marker_emits_its_new_position_once(waveform):
+    waveform.set_markers([(2.5, "A", "id-a")])  # x = 100
+    moves = []
+    waveform.marker_moved.connect(lambda marker_id, position: moves.append((marker_id, position)))
+
+    _drag(waveform, 100, 200)
+
+    assert len(moves) == 1
+    assert moves[0][0] == "id-a"
+    assert moves[0][1] == pytest.approx(5.0, abs=0.05)
+
+
+def test_dragging_a_marker_does_not_seek_nor_create_a_selection(waveform):
+    waveform.set_markers([(2.5, "A", "id-a")])
+    seeks, selections = [], []
+    waveform.seek_requested.connect(seeks.append)
+    waveform.selection_changed.connect(lambda *args: selections.append(args))
+
+    _drag(waveform, 100, 200)
+
+    assert seeks == [] and selections == []
+
+
+def test_dragging_elsewhere_still_creates_a_selection(waveform):
+    waveform.set_markers([(2.5, "A", "id-a")])
+    selections = []
+    waveform.selection_changed.connect(lambda *args: selections.append(args))
+
+    _drag(waveform, 240, 320)
+
+    assert len(selections) == 1
+
+
+def test_double_clicking_a_marker_asks_to_rename_it_and_not_the_region(waveform):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    waveform.set_sequence_regions([(0.0, 10.0, "Tout", "seq")])
+    waveform.set_markers([(2.5, "A", "id-a")])
+    renamed, played = [], []
+    waveform.marker_double_clicked.connect(renamed.append)
+    waveform.region_double_clicked.connect(played.append)
+
+    QTest.mouseDClick(waveform, Qt.MouseButton.LeftButton, pos=QPoint(100, 60))
+
+    assert renamed == ["id-a"] and played == []
+
+
+def test_double_clicking_away_from_a_marker_still_plays_the_region(waveform):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    waveform.set_sequence_regions([(0.0, 10.0, "Tout", "seq")])
+    waveform.set_markers([(2.5, "A", "id-a")])
+    played = []
+    waveform.region_double_clicked.connect(played.append)
+
+    QTest.mouseDClick(waveform, Qt.MouseButton.LeftButton, pos=QPoint(300, 60))
+
+    assert played == ["seq"]
+
+
+def test_moving_a_marker_is_a_single_undoable_step(window_with_project):
+    window, project = window_with_project
+    _place_playhead(window, 2.0)
+    window._add_marker_at_playhead()
+    marker_id = project.markers[0].id
+
+    window._on_marker_moved(marker_id, 7.0)
+
+    assert project.markers[0].position == pytest.approx(7.0)
+    window._sequence_list.undo_stack.undo()
+    assert project.markers[0].position == pytest.approx(2.0)
+
+
+def test_moving_a_marker_nowhere_pushes_nothing(window_with_project):
+    window, project = window_with_project
+    _place_playhead(window, 2.0)
+    window._add_marker_at_playhead()
+    depth = window._sequence_list.undo_stack.count()
+
+    window._on_marker_moved(project.markers[0].id, 2.0)
+
+    assert window._sequence_list.undo_stack.count() == depth
+
+
+def test_moving_a_marker_is_clamped_to_the_audio(window_with_project):
+    window, project = window_with_project
+    _place_playhead(window, 2.0)
+    window._add_marker_at_playhead()
+
+    window._on_marker_moved(project.markers[0].id, 99.0)
+
+    assert project.markers[0].position == pytest.approx(10.0)
+
+
+def test_renaming_a_marker_is_undoable(window_with_project, monkeypatch):
+    window, project = window_with_project
+    _place_playhead(window, 2.0)
+    window._add_marker_at_playhead()
+    monkeypatch.setattr(
+        "app.ui.main_window.QInputDialog.getText", lambda *a, **k: ("Question du public", True)
+    )
+
+    window._rename_marker(project.markers[0].id)
+    assert project.markers[0].label == "Question du public"
+    assert window._waveform_widget._markers[0][1] == "Question du public"
+
+    window._sequence_list.undo_stack.undo()
+    assert project.markers[0].label == "Repère 1"
+
+
+@pytest.mark.parametrize("answer", [("", True), ("   ", True), ("Ignoré", False)])
+def test_renaming_is_abandoned_on_cancel_or_empty_name(window_with_project, monkeypatch, answer):
+    window, project = window_with_project
+    _place_playhead(window, 2.0)
+    window._add_marker_at_playhead()
+    monkeypatch.setattr("app.ui.main_window.QInputDialog.getText", lambda *a, **k: answer)
+
+    window._rename_marker(project.markers[0].id)
+
+    assert project.markers[0].label == "Repère 1"
+
+
+def test_marker_signals_for_an_unknown_id_are_ignored(window_with_project, monkeypatch):
+    window, _project = window_with_project
+    monkeypatch.setattr("app.ui.main_window.QInputDialog.getText", lambda *a, **k: ("X", True))
+
+    window._on_marker_moved("inconnu", 3.0)
+    window._rename_marker("inconnu")
+
+    assert window._sequence_list.undo_stack.count() == 0
