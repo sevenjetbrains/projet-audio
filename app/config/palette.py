@@ -39,6 +39,7 @@ DARK_PALETTE: dict[str, str] = {
     "region_border_active": "#e2622c",
     "selection_fill": "#e2622c",
     "overview_window": "#e2622c",
+    "marker": "#55a8e0",
 }
 
 LIGHT_PALETTE: dict[str, str] = {
@@ -71,6 +72,7 @@ LIGHT_PALETTE: dict[str, str] = {
     "region_border_active": "#d9541f",
     "selection_fill": "#d9541f",
     "overview_window": "#d9541f",
+    "marker": "#1f6fa8",
 }
 
 assert set(DARK_PALETTE) == set(LIGHT_PALETTE), "les deux palettes doivent porter les mêmes jetons"

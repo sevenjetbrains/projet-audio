@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from app.config.constants import APP_NAME, SUPPORTED_VIDEO_FORMATS
 from app.config.settings import FFmpegBinaries
 from app.config.themes import THEMES, get_theme, load_stylesheet, load_theme_preference, save_theme_preference
+from app.services import marker_service
 from app.services.export_service import ExportError, merge_sequences
 from app.services.project_service import (
     PROJECT_FILE_EXTENSION,
@@ -49,6 +50,7 @@ from app.ui.shortcuts import set_button_shortcut, shortcuts_help_html
 from app.ui.silence_split_card import SilenceSplitCard
 from app.ui.split_preview_dialog import SplitPreviewDialog
 from app.ui.transport_controls import TransportControls
+from app.ui.undo_commands import CallbackCommand
 from app.ui.video_panel import VideoPanel
 from app.ui.video_player_panel import VideoPlayerPanel
 from app.ui.video_preview import VideoPreview
@@ -62,6 +64,9 @@ _RIGHT_PANEL_WIDTH = 360
 _AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
 _SAVE_STATE_REFRESH_MS = 30 * 1000
 _WAVEFORM_HINT = "clic = lecture · glisser = sélection"
+# Saisie d'un repère à la tête de lecture : quelques pixels à l'écran, jamais moins d'un quart de seconde.
+_MARKER_PICK_PIXELS = 6
+_MARKER_PICK_SECONDS = 0.25
 
 
 class MainWindow(QMainWindow):
@@ -112,6 +117,7 @@ class MainWindow(QMainWindow):
         self._save_state_title = label("Projet à jour", "titleLabel")
         self._save_state_hint = label("Aucune modification en attente.", "hintLabel")
 
+        self._source_duration = 0.0
         self._playback_offset: float | None = 0.0
         self._editing_sequence_id: str | None = None
         self._playing_sequence_id: str | None = None  # séquence chargée dans le lecteur (comparaison A/B)
@@ -352,6 +358,11 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_I), self, activated=self._mark_selection_start)
         QShortcut(QKeySequence(Qt.Key.Key_O), self, activated=self._mark_selection_end)
         QShortcut(QKeySequence("Shift+Space"), self, activated=self._listen_to_selection)
+        QShortcut(QKeySequence(Qt.Key.Key_M), self, activated=self._add_marker_at_playhead)
+        QShortcut(QKeySequence("Shift+M"), self, activated=self._remove_marker_at_playhead)
+        QShortcut(QKeySequence("Alt+Up"), self, activated=self._go_to_previous_marker)
+        QShortcut(QKeySequence("Alt+Down"), self, activated=self._go_to_next_marker)
+        QShortcut(QKeySequence("Alt+S"), self, activated=self._select_between_markers)
         QShortcut(QKeySequence(Qt.Key.Key_L), self, activated=self._selection_card.loop_button.toggle)
         for key in (Qt.Key.Key_F, Qt.Key.Key_F11):
             QShortcut(QKeySequence(key), self, activated=self._video_player_panel.toggle_fullscreen)
@@ -564,7 +575,9 @@ class MainWindow(QMainWindow):
         self._playback_offset = 0.0
         self._sequence_list.set_project(self._video_panel.project)
         self._audio_processing_panel.set_project(self._video_panel.project)
+        self._source_duration = duration
         self._update_waveform_regions()
+        self._update_waveform_markers()
         self._crossfade_spin.blockSignals(True)
         self._crossfade_spin.setValue(self._video_panel.project.crossfade_duration)
         self._crossfade_spin.blockSignals(False)
@@ -757,6 +770,129 @@ class MainWindow(QMainWindow):
         self._ensure_source_playback()
         self._transport_controls.play_range(start, end)
 
+    # --- Repères -------------------------------------------------------------
+
+    def _update_waveform_markers(self) -> None:
+        project = self._video_panel.project
+        markers = project.markers if project is not None else []
+        self._waveform_widget.set_markers([(m.position, m.label, m.id) for m in markers])
+
+    def _marker_pick_tolerance(self) -> float:
+        """Écart toléré entre la tête de lecture et un repère pour le considérer « sous » elle.
+
+        Exprimé en pixels à l'écran : dézoomé, une seconde tient dans un pixel, et une
+        tolérance fixe empêcherait de reprendre un repère qu'on voit pourtant sous la tête."""
+        start, end = self._waveform_widget.view_range
+        width = max(self._waveform_widget.width(), 1)
+        return max(_MARKER_PICK_SECONDS, (end - start) / width * _MARKER_PICK_PIXELS)
+
+    def _push_marker_command(self, description: str, redo_fn, undo_fn) -> None:
+        """Pousse une modification des repères sur la pile d'undo partagée, rendu et état inclus."""
+
+        def with_refresh(action):
+            def run() -> None:
+                action()
+                self._update_waveform_markers()
+                self._update_project_summary()
+                self._mark_dirty()
+
+            return run
+
+        self._sequence_list.undo_stack.push(
+            CallbackCommand(description, with_refresh(redo_fn), with_refresh(undo_fn))
+        )
+
+    def _require_project(self, message: str):
+        """Projet courant, ou None après avoir expliqué en barre d'état pourquoi l'action n'a rien fait."""
+        project = self._video_panel.project
+        if project is None:
+            self.statusBar().showMessage(message, 4000)
+            return None
+        return project
+
+    def _add_marker_at_playhead(self) -> None:
+        """Raccourci M : pose un repère nommé à la position de lecture."""
+        project = self._require_project("Importez une vidéo avant de poser un repère.")
+        if project is None:
+            return
+        position = min(max(self._waveform_widget.playhead, 0.0), self._source_duration)
+        existing = marker_service.marker_near(project, position, self._marker_pick_tolerance())
+        if existing is not None:
+            self.statusBar().showMessage(f"« {existing.label} » est déjà posé ici.", 4000)
+            return
+        marker = marker_service.create_marker(project, position)
+        self._push_marker_command(
+            f"Poser le repère {marker.label}",
+            lambda: marker_service.insert_marker(project, marker),
+            lambda: marker_service.remove_marker(project, marker.id),
+        )
+        self.statusBar().showMessage(
+            f"{marker.label} posé à {format_timecode_fr(marker.position)} · Maj+M pour le retirer", 4000
+        )
+
+    def _remove_marker_at_playhead(self) -> None:
+        """Raccourci Maj+M : retire le repère situé sous la tête de lecture."""
+        project = self._require_project("Aucun projet : aucun repère à retirer.")
+        if project is None:
+            return
+        marker = marker_service.marker_near(project, self._waveform_widget.playhead, self._marker_pick_tolerance())
+        if marker is None:
+            self.statusBar().showMessage("Aucun repère sous la tête de lecture.", 4000)
+            return
+        self._push_marker_command(
+            f"Retirer le repère {marker.label}",
+            lambda: marker_service.remove_marker(project, marker.id),
+            lambda: marker_service.insert_marker(project, marker),
+        )
+        self.statusBar().showMessage(f"{marker.label} retiré · Ctrl+Z pour le remettre", 4000)
+
+    def _go_to_previous_marker(self) -> None:
+        """Raccourci Alt+Haut : se cale sur le repère précédent."""
+        self._go_to_marker(marker_service.previous_marker)
+
+    def _go_to_next_marker(self) -> None:
+        """Raccourci Alt+Bas : se cale sur le repère suivant."""
+        self._go_to_marker(marker_service.next_marker)
+
+    def _go_to_marker(self, pick) -> None:
+        project = self._require_project("Importez une vidéo avant de naviguer entre les repères.")
+        if project is None:
+            return
+        if not project.markers:
+            self.statusBar().showMessage("Aucun repère posé (M pour en poser un).", 4000)
+            return
+        marker = pick(project, self._waveform_widget.playhead)
+        if marker is None:
+            self.statusBar().showMessage("Aucun repère de ce côté de la tête de lecture.", 4000)
+            return
+        self._on_waveform_seek_requested(marker.position)
+        self._waveform_widget.set_playhead(marker.position)
+        self._waveform_widget.ensure_range_visible(marker.position, marker.position)
+        self.statusBar().showMessage(f"{marker.label} — {format_timecode_fr(marker.position)}", 4000)
+
+    def _select_between_markers(self) -> None:
+        """Raccourci Alt+S : sélectionne l'intervalle délimité par les repères qui encadrent la lecture."""
+        project = self._require_project("Importez une vidéo avant de sélectionner entre deux repères.")
+        if project is None:
+            return
+        span = marker_service.surrounding_range(project, self._waveform_widget.playhead, self._source_duration)
+        if span is None:
+            self.statusBar().showMessage("Aucun intervalle entre repères à cet endroit.", 4000)
+            return
+        start, end = span
+        self._selection_start_spin.blockSignals(True)
+        self._selection_end_spin.blockSignals(True)
+        self._selection_start_spin.setValue(start)
+        self._selection_end_spin.setValue(end)
+        self._selection_start_spin.blockSignals(False)
+        self._selection_end_spin.blockSignals(False)
+        self._on_selection_spin_changed()
+        self._selection_card.refresh_duration()
+        self.statusBar().showMessage(
+            f"Sélection entre repères : {format_timecode_fr(start)} → {format_timecode_fr(end)} · Entrée pour créer la séquence",
+            5000,
+        )
+
     # --- Séquences -----------------------------------------------------------
 
     def _on_crossfade_changed(self, value: float) -> None:
@@ -778,7 +914,11 @@ class MainWindow(QMainWindow):
             total -= project.crossfade_duration * (count - 1)
         total = max(total, 0.0)
         plural = "s" if count > 1 else ""
-        self._project_summary_label.setText(f"{count} séquence{plural} — durée fusionnée : {format_timecode(total)}")
+        summary = f"{count} séquence{plural} — durée fusionnée : {format_timecode(total)}"
+        if project.markers:
+            marker_plural = "s" if len(project.markers) > 1 else ""
+            summary += f" · {len(project.markers)} repère{marker_plural}"
+        self._project_summary_label.setText(summary)
 
     def _on_sequence_play_requested(self, name: str, audio_path: str, source_start: float) -> None:
         self._playback_offset = source_start

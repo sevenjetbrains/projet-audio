@@ -33,6 +33,7 @@ python -m app.main
 - Import vidéo par dialogue ou par glisser-déposer (un projet .acsproject déposé est ouvert), forme d'onde, lecture avec contrôles de transport (lecture/pause avec Espace, stop, ±5 s, volume) ; touches I / O pour marquer le début / la fin de la sélection à la position de lecture, Entrée pour créer la séquence
 - Lecteur vidéo intégré : la vidéo source est visualisée pendant la lecture et le déplacement sur la forme d'onde, pour repérer visuellement les passages à extraire (repli automatique sur l'audio extrait si le format n'est pas décodable par Qt)
 - Séquences existantes affichées en zones colorées, avec leur nom, sur la forme d'onde ; un clic sur une zone sélectionne la séquence, un double-clic (zone ou ligne de la liste) la lit
+- Repères sur la timeline (M pour en poser un à la tête de lecture, Maj+M pour le retirer, Alt+↑/↓ pour aller au précédent/suivant, Alt+S pour sélectionner l'intervalle entre les deux repères encadrants) : affichés en traits étiquetés sur la forme d'onde, annulables et enregistrés dans le projet
 - Ajustement des bornes d'une séquence existante (poignées sur la waveform) et division à la tête de lecture, annulables ; les traitements sont conservés
 - Création et gestion de séquences (début/fin, réorganisation par glisser-déposer, sélection multiple : suppression, duplication et traitement en lot)
 - Découpage automatique en séquences selon les silences, avec aperçu des passages détectés (à cocher), annulable en une action

@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from app.config.settings import TEMP_DIR
 from app.models.audio_settings import AudioSettings
+from app.models.marker import Marker
 from app.models.media import MediaInfo
 from app.models.project import Project
 from app.services import sequence_service
@@ -44,6 +45,10 @@ def save_project(project: Project, out_path: str) -> None:
         "project_name": project.name,
         "source_video": project.source_video.path,
         "crossfade_duration": project.crossfade_duration,
+        "markers": [
+            {"id": marker.id, "position": marker.position, "label": marker.label}
+            for marker in sorted(project.markers, key=lambda m: m.position)
+        ],
         "sequences": [
             {
                 "id": seq.id,
@@ -95,6 +100,12 @@ def load_project(path: str, ffprobe_service: FFprobeService, ffmpeg_service: FFm
     project = create_project_for_video(media_info)
     project.name = data.get("project_name", project.name)
     project.crossfade_duration = data.get("crossfade_duration", 0.0)
+
+    # Les projets antérieurs aux repères n'ont pas de clé « markers » : liste vide.
+    project.markers = [
+        Marker(id=m.get("id") or uuid4().hex[:8], position=m["position"], label=m.get("label", ""))
+        for m in sorted(data.get("markers", []), key=lambda m: m["position"])
+    ]
 
     original_audio = str(Path(project.temp_dir) / "source.wav")
     ffmpeg_service.extract_audio(video_path, original_audio, media_info.duration)

@@ -27,6 +27,8 @@ _PANEL_RADIUS = 10.0
 _REGION_INSET_PX = 2.0
 _REGION_RADIUS = 6.0
 _LABEL_PILL_HEIGHT = 18
+_MARKER_FLAG_HEIGHT = 16
+_MARKER_GRAB_PX = 6  # distance en pixels à laquelle un repère est saisissable à la souris
 _SELECTION_ALPHA = 48
 _REGION_FILL_ALPHA = 190
 # Paliers de graduation de la règle temporelle, du plus fin au plus large (secondes).
@@ -40,6 +42,14 @@ class SequenceRegion(NamedTuple):
     end: float
     name: str
     sequence_id: str = ""
+
+
+class MarkerFlag(NamedTuple):
+    """Repère affiché sur la forme d'onde (temps en secondes dans l'audio source)."""
+
+    position: float
+    label: str
+    marker_id: str = ""
 
 
 def _nice_tick_step(span: float, width: int) -> float:
@@ -81,6 +91,7 @@ class WaveformWidget(QWidget):
         self._playhead = 0.0
         self._selection: tuple[float, float] | None = None
         self._regions: list[SequenceRegion] = []
+        self._markers: list[MarkerFlag] = []
         self._active_sequence_id = ""
         self._pending_selection: tuple[float, float] | None = None
         self._drag_start_x: float | None = None
@@ -124,6 +135,19 @@ class WaveformWidget(QWidget):
         """Met en accent la zone de la séquence sélectionnée dans la liste."""
         self._active_sequence_id = sequence_id or ""
         self.update()
+
+    def set_markers(self, markers: list[tuple]) -> None:
+        """Repères (position, libellé[, id]) affichés en traits verticaux étiquetés."""
+        self._markers = [MarkerFlag(*marker) for marker in markers]
+        self.update()
+
+    def marker_at(self, x: float) -> MarkerFlag | None:
+        """Repère à moins de _MARKER_GRAB_PX pixels de `x`, le plus proche d'abord, ou None."""
+        near = [(abs(x - self._time_to_x(m.position)), index) for index, m in enumerate(self._markers)]
+        near = [(distance, index) for distance, index in near if distance <= _MARKER_GRAB_PX]
+        if not near:
+            return None
+        return self._markers[min(near)[1]]
 
     def region_at(self, seconds: float) -> SequenceRegion | None:
         """Séquence affichée au-dessus des autres au temps donné (la dernière dessinée), ou None."""
@@ -483,6 +507,40 @@ class WaveformWidget(QWidget):
             tick += step
         painter.restore()
 
+    def _paint_markers(self, painter: QPainter, width: int, height: int) -> None:
+        """Repères : trait vertical et fanion étiqueté en bas, pour ne pas masquer les séquences."""
+        if not self._markers:
+            return
+        painter.save()
+        color = QColor(self._theme.color("marker"))
+        font = QFont(painter.font())
+        font.setPointSizeF(max(font.pointSizeF() - 1.0, 6.0))
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+
+        for marker in self._markers:
+            x = self._time_to_x(marker.position)
+            if not -1 <= x <= width + 1:
+                continue  # hors de la portion visible (zoom)
+            painter.setPen(QPen(color, 1, Qt.PenStyle.DashLine))
+            painter.drawLine(int(x), 0, int(x), height)
+            self._paint_marker_flag(painter, marker, x, width, height, color, metrics)
+        painter.restore()
+
+    def _paint_marker_flag(self, painter, marker, x, width, height, color, metrics) -> None:
+        """Fanion du repère, accroché au trait et rabattu vers l'intérieur près des bords."""
+        text = metrics.elidedText(marker.label, Qt.TextElideMode.ElideRight, 140)
+        flag_width = metrics.horizontalAdvance(text) + 12
+        left = x if x + flag_width <= width else x - flag_width
+        flag = QRectF(left, height - _MARKER_FLAG_HEIGHT - 2, flag_width, _MARKER_FLAG_HEIGHT)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawRoundedRect(flag, 3, 3)
+        painter.setPen(QColor(255, 255, 255, 235))
+        painter.drawText(flag, Qt.AlignmentFlag.AlignCenter, text)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
     def _paint_playhead(self, painter: QPainter, width: int, height: int) -> None:
         x = self._time_to_x(self._playhead)
         if not 0 <= x <= width:
@@ -532,6 +590,8 @@ class WaveformWidget(QWidget):
             painter.fillRect(QRectF(x1, 0, x2 - x1, height), fill)
             if not self._dragging:  # pendant la création d'une sélection, pas de poignées à saisir
                 self._paint_handles(painter, height)
+
+        self._paint_markers(painter, width, height)
 
         if self._duration > 0:
             self._paint_playhead(painter, width, height)

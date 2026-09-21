@@ -35,6 +35,13 @@ SHORTCUTS_HELP: dict[str, list[tuple[str, str]]] = {
         ("O", "Marquer la fin de la sélection à la position de lecture"),
         ("Return", "Créer une séquence depuis la sélection"),
     ],
+    "Repères": [
+        ("M", "Poser un repère à la position de lecture"),
+        ("Shift+M", "Retirer le repère sous la tête de lecture"),
+        ("Alt+Up", "Aller au repère précédent"),
+        ("Alt+Down", "Aller au repère suivant"),
+        ("Alt+S", "Sélectionner l'intervalle entre les deux repères encadrants"),
+    ],
     "Séquences": [
         ("Ctrl+L", "Lire la séquence"),
         ("F2", "Renommer"),
