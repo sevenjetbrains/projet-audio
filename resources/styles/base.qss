@@ -407,6 +407,10 @@ QSlider::sub-page:horizontal {
     border-radius: 2px;
 }
 
+QSlider[plain="true"]::sub-page:horizontal {
+    background-color: $border_strong;
+}
+
 QSlider::handle:horizontal {
     background-color: $text;
     border: none;
@@ -676,4 +680,121 @@ QPushButton[warning="true"] {
 QPushButton[warning="true"]:hover {
     background-color: $accent_hover;
     border-color: $accent_hover;
+}
+
+/* --- Fenetre de traitement audio ------------------------------------------ */
+
+#dialogHeader {
+    background-color: $titlebar;
+    border-bottom: 1px solid $border;
+}
+
+#dialogFooter {
+    background-color: $titlebar;
+    border-top: 1px solid $border;
+}
+
+#dialogTitle {
+    color: $text;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+#dialogSubtitle {
+    color: $text_muted;
+    font-size: 12px;
+}
+
+#profilesColumn {
+    background-color: $surface;
+    border-right: 1px solid $border;
+}
+
+QFrame[profile="false"], QFrame[profile="true"] {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 10px;
+}
+
+QFrame[profile="false"]:hover {
+    background-color: $field_hover;
+    border-color: $border_strong;
+}
+
+QFrame[profile="true"] {
+    background-color: $accent_soft;
+    border: 1px solid $accent;
+}
+
+#profileName {
+    color: $text;
+    font-size: 14px;
+}
+
+#profileNameSelected {
+    color: $accent;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+#cardTitle {
+    color: $text;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+#cardHint {
+    color: $text_faint;
+    font-size: 12px;
+}
+
+#settingName {
+    color: $text;
+    font-size: 13px;
+}
+
+#settingHint {
+    color: $text_faint;
+    font-size: 11px;
+}
+
+#sliderName {
+    color: $text_muted;
+    font-size: 13px;
+}
+
+#valueMono {
+    color: $text;
+    font-family: "Consolas", "Cascadia Mono", "DejaVu Sans Mono", monospace;
+    font-size: 13px;
+}
+
+#footerNote {
+    color: $text_faint;
+    font-size: 11px;
+}
+
+QPushButton[segment="true"] {
+    background-color: $field;
+    border: 1px solid $border;
+    border-radius: 8px;
+    color: $text_muted;
+    font-size: 13px;
+}
+
+QPushButton[segment="true"]:hover {
+    background-color: $field_hover;
+    color: $text;
+}
+
+QPushButton[segment="true"]:checked {
+    background-color: $accent;
+    border-color: $accent;
+    color: $text_on_accent;
+    font-weight: 600;
+}
+
+#cardSeparator {
+    background-color: $border;
+    border: none;
 }

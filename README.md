@@ -41,8 +41,8 @@ python -m app.main
 - Découpage aux repères (menu Séquences) : chaque tranche délimitée par deux repères devient une séquence, nommée d'après le repère qui l'ouvre, avec le même aperçu à cocher que le découpage automatique
 - Découpage automatique en séquences selon les silences, avec aperçu des passages détectés (à cocher), annulable en une action
 - Comparaison A/B (bouton Original, Ctrl+B) : bascule en cours d'écoute entre l'audio brut et l'audio traité, à la même position
-- Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression, gain, normalisation (pic ou loudness LUFS)
-- Profils prédéfinis : Voix parlée, Interview, Podcast, Conférence, Enregistrement microphone, Voix faible
+- Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression réglable (ratio et seuil), gain, fondus, normalisation par crête (cible en dBFS, mesurée puis corrigée au gain constant) ou en loudness (LUFS)
+- Fenêtre de traitement en cartes : profils cliquables à gauche (Voix parlée, Interview, Podcast, Conférence, Enregistrement micro, Voix faible), réglages groupés par thème à droite (réduction de bruit, nettoyage, égaliseur, normalisation, compression, gain et fondus, suppression des silences) ; toucher un réglage quitte le profil, et « Appliquer » traite la sélection entière
 - Thèmes sombre et clair (menu Affichage), choix mémorisé
 - Titre de fenêtre avec astérisque si modifications non sauvegardées, confirmation avant fermeture, nouvel import ou ouverture d'un autre projet
 - Raccourcis clavier des boutons (infobulles) : Suppr, Ctrl+D, F2, Ctrl+L (séquences) ; Ctrl+Entrée, Ctrl+Maj+Entrée, Ctrl+R (traitement) ; Ctrl+M (fusion) ; F1 : liste complète des raccourcis ; Alt+←/→, Ctrl+Espace (lecture)

@@ -26,11 +26,13 @@ def project_with_sequence(ffmpeg_binaries, sample_video):
     return project, sequence, ffmpeg_service
 
 
-def test_panel_disabled_without_sequence(qtbot, ffmpeg_binaries):
+def test_settings_are_disabled_without_sequence_but_the_window_stays_closable(qtbot, ffmpeg_binaries):
     panel = AudioProcessingPanel(FFmpegService(ffmpeg_binaries.ffmpeg_path))
     qtbot.addWidget(panel)
 
-    assert not panel.isEnabled()
+    assert not panel._settings_area.isEnabled()
+    assert not panel._apply_button.isEnabled()
+    assert panel._close_button.isEnabled() and panel._cancel_button.isEnabled()
 
 
 def test_panel_enabled_and_loads_settings(qtbot, project_with_sequence):
@@ -42,8 +44,8 @@ def test_panel_enabled_and_loads_settings(qtbot, project_with_sequence):
     panel.set_project(project)
     panel.set_sequence(sequence)
 
-    assert panel.isEnabled()
-    assert panel._gain_spin.value() == 4.0
+    assert panel._settings_area.isEnabled()
+    assert panel._gain_slider.value() == 4.0
 
 
 def test_selecting_profile_loads_preset_settings(qtbot, project_with_sequence):
@@ -54,11 +56,11 @@ def test_selecting_profile_loads_preset_settings(qtbot, project_with_sequence):
     panel.set_project(project)
     panel.set_sequence(sequence)
 
-    panel._profile_combo.setCurrentText("Voix faible")
+    panel._select_profile("Voix faible")
 
-    assert panel._gain_spin.value() == 6.0
-    assert panel._compression_cb.isChecked()
-    assert panel._normalize_cb.isChecked()
+    assert panel._gain_slider.value() == 6.0
+    assert panel._compression_toggle.isChecked()
+    assert panel._normalize_toggle.isChecked()
 
 
 def test_selecting_sequence_resets_profile_to_custom(qtbot, project_with_sequence):
@@ -68,11 +70,11 @@ def test_selecting_sequence_resets_profile_to_custom(qtbot, project_with_sequenc
     qtbot.addWidget(panel)
     panel.set_project(project)
     panel.set_sequence(sequence)
-    panel._profile_combo.setCurrentText("Podcast")
+    panel._select_profile("Podcast")
 
     panel.set_sequence(sequence)
 
-    assert panel._profile_combo.currentText() == "Personnalisé"
+    assert panel._current_profile == "Personnalisé"
 
 
 def test_apply_button_processes_sequence(qtbot, project_with_sequence):
@@ -82,7 +84,7 @@ def test_apply_button_processes_sequence(qtbot, project_with_sequence):
     qtbot.addWidget(panel)
     panel.set_project(project)
     panel.set_sequence(sequence)
-    panel._gain_spin.setValue(2.0)
+    panel._gain_slider.set_value(2.0)
 
     with qtbot.waitSignal(panel.processed, timeout=5000):
         panel._on_apply_clicked()
@@ -101,21 +103,21 @@ def test_apply_to_selection_processes_all_selected_sequences(qtbot, project_with
     panel.set_sequence(first)
 
     panel.set_selected_sequences([first])
-    assert not panel._apply_selection_button.isEnabled()
+    assert panel._apply_button.text() == "Appliquer à la séquence"
 
     panel.set_selected_sequences([first, second])
-    assert panel._apply_selection_button.isEnabled()
-    assert "(2)" in panel._apply_selection_button.text()
+    assert panel._apply_button.text() == "Appliquer aux 2 séquences"
+    assert "2 séquences sélectionnées" in panel._subtitle_label.text()
 
-    panel._gain_spin.setValue(3.0)
+    panel._gain_slider.set_value(3.0)
     with qtbot.waitSignal(panel.processed, timeout=10000):
-        panel._on_apply_selection_clicked()
+        panel._on_apply_clicked()
 
     for sequence in (first, second):
         assert sequence.audio_settings.gain == 3.0
         assert sequence.processed_audio_path and Path(sequence.processed_audio_path).exists()
     assert first.audio_settings is not second.audio_settings
-    assert panel._apply_selection_button.isEnabled()
+    assert panel._apply_button.isEnabled()
 
 
 def _panel_with_undo(qtbot, project, sequence, ffmpeg_service):
@@ -134,7 +136,7 @@ def test_processing_is_undoable_and_redoable(qtbot, project_with_sequence):
     project, sequence, ffmpeg_service = project_with_sequence
     panel, stack = _panel_with_undo(qtbot, project, sequence, ffmpeg_service)
 
-    panel._gain_spin.setValue(4.0)
+    panel._gain_slider.set_value(4.0)
     with qtbot.waitSignal(panel.processed, timeout=10000):
         panel._on_apply_clicked()
     processed_path = sequence.processed_audio_path
@@ -144,25 +146,25 @@ def test_processing_is_undoable_and_redoable(qtbot, project_with_sequence):
     stack.undo()
     assert sequence.processed_audio_path == ""
     assert sequence.audio_settings.gain == 0.0
-    assert panel._gain_spin.value() == 0.0
+    assert panel._gain_slider.value() == 0.0
 
     stack.redo()
     assert sequence.processed_audio_path == processed_path
     assert sequence.audio_settings.gain == 4.0
     assert Path(processed_path).exists()
-    assert panel._gain_spin.value() == 4.0
+    assert panel._gain_slider.value() == 4.0
 
 
 def test_second_processing_keeps_first_result_for_undo(qtbot, project_with_sequence):
     project, sequence, ffmpeg_service = project_with_sequence
     panel, stack = _panel_with_undo(qtbot, project, sequence, ffmpeg_service)
 
-    panel._gain_spin.setValue(2.0)
+    panel._gain_slider.set_value(2.0)
     with qtbot.waitSignal(panel.processed, timeout=10000):
         panel._on_apply_clicked()
     first_path = sequence.processed_audio_path
 
-    panel._gain_spin.setValue(6.0)
+    panel._gain_slider.set_value(6.0)
     with qtbot.waitSignal(panel.processed, timeout=10000):
         panel._on_apply_clicked()
     second_path = sequence.processed_audio_path
@@ -177,7 +179,7 @@ def test_second_processing_keeps_first_result_for_undo(qtbot, project_with_seque
 def test_reset_is_undoable(qtbot, project_with_sequence):
     project, sequence, ffmpeg_service = project_with_sequence
     panel, stack = _panel_with_undo(qtbot, project, sequence, ffmpeg_service)
-    panel._gain_spin.setValue(3.0)
+    panel._gain_slider.set_value(3.0)
     with qtbot.waitSignal(panel.processed, timeout=10000):
         panel._on_apply_clicked()
     processed_path = sequence.processed_audio_path
@@ -197,9 +199,9 @@ def test_batch_processing_is_a_single_undo_step(qtbot, project_with_sequence):
     panel, stack = _panel_with_undo(qtbot, project, first, ffmpeg_service)
     panel.set_selected_sequences([first, second])
 
-    panel._gain_spin.setValue(3.0)
+    panel._gain_slider.set_value(3.0)
     with qtbot.waitSignal(panel.processed, timeout=10000):
-        panel._on_apply_selection_clicked()
+        panel._on_apply_clicked()
     assert stack.count() == 1
 
     stack.undo()
@@ -214,7 +216,7 @@ def test_failed_processing_restores_previous_state_and_pushes_nothing(qtbot, pro
     project, sequence, ffmpeg_service = project_with_sequence
     panel, stack = _panel_with_undo(qtbot, project, sequence, ffmpeg_service)
 
-    panel._gain_spin.setValue(5.0)
+    panel._gain_slider.set_value(5.0)
     panel._pending = ("x", [sequence], [panel._capture(sequence)])
     sequence.audio_settings = panel._read_settings()
 
@@ -223,3 +225,143 @@ def test_failed_processing_restores_previous_state_and_pushes_nothing(qtbot, pro
     assert sequence.audio_settings.gain == 0.0
     assert stack.count() == 0
     assert panel._pending is None
+
+
+# --- Réglages de la maquette -------------------------------------------------
+
+
+def _panel(qtbot, ffmpeg_service):
+    panel = AudioProcessingPanel(ffmpeg_service)
+    qtbot.addWidget(panel)
+    return panel
+
+
+def test_noise_segment_aucune_turns_the_reduction_off(qtbot, project_with_sequence):
+    _project, _sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+
+    panel._noise_segments.set_value("Aucune")
+    assert panel._read_settings().noise_reduction is False
+
+    panel._noise_segments.set_value("Forte")
+    settings = panel._read_settings()
+    assert settings.noise_reduction and settings.noise_reduction_level == "forte"
+
+
+def test_a_disabled_reduction_still_shows_a_level_when_switched_back_on(qtbot, project_with_sequence):
+    """« Aucune » ne doit pas laisser un niveau vide dans le modèle."""
+    from app.models.audio_settings import AudioSettings
+
+    _project, _sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+
+    panel._load_settings(AudioSettings(noise_reduction=False))
+
+    assert panel._noise_segments.value() == "Aucune"
+    assert panel._read_settings().noise_reduction_level in ("faible", "moyenne", "forte")
+
+
+def test_fades_are_shown_in_milliseconds_and_stored_in_seconds(qtbot, project_with_sequence):
+    from app.models.audio_settings import AudioSettings
+
+    _project, _sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+
+    panel._load_settings(AudioSettings(fade_in=0.04, fade_out=0.12))
+    assert (panel._fade_in_spin.value(), panel._fade_out_spin.value()) == (40, 120)
+
+    panel._fade_in_spin.setValue(250)
+    assert panel._read_settings().fade_in == pytest.approx(0.25)
+
+
+def test_normalisation_mode_enables_only_the_matching_control(qtbot, project_with_sequence):
+    from app.models.audio_settings import AudioSettings
+
+    _project, _sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+
+    panel.set_sequence(_sequence)
+    panel._load_settings(AudioSettings(normalize=True, normalize_mode="loudness"))
+    assert panel._lufs_slider.isEnabled() and not panel._peak_spin.isEnabled()
+
+    panel._peak_radio.setChecked(True)
+    assert panel._peak_spin.isEnabled() and not panel._lufs_slider.isEnabled()
+    assert panel._read_settings().normalize_mode == "peak"
+
+
+def test_compression_ratio_and_threshold_reach_the_settings(qtbot, project_with_sequence):
+    _project, _sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+
+    panel._compression_toggle.setChecked(True)
+    panel._ratio_slider.set_value(4.0)
+    panel._threshold_slider.set_value(-24.0)
+
+    settings = panel._read_settings()
+    assert settings.compression and settings.compression_ratio == pytest.approx(4.0)
+    assert settings.compression_threshold_db == pytest.approx(-24.0)
+
+
+def test_a_profile_fills_every_card(qtbot, project_with_sequence):
+    _project, sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+    panel.set_sequence(sequence)
+
+    panel._profile_cards["Conférence"].clicked.emit("Conférence")
+
+    assert panel._current_profile == "Conférence"
+    assert panel._profile_cards["Conférence"].property("profile") == "true"
+    settings = panel._read_settings()
+    assert settings.eq_bass_db == pytest.approx(-3.0)
+    assert settings.gain == pytest.approx(3.0)
+    assert (panel._fade_in_spin.value(), panel._fade_out_spin.value()) == (40, 120)
+
+
+def test_touching_a_setting_leaves_the_profile(qtbot, project_with_sequence):
+    """Le profil ne décrit plus l'écran dès qu'un réglage est modifié à la main."""
+    _project, sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+    panel.set_sequence(sequence)
+    panel._select_profile("Podcast")
+
+    panel._gain_slider.slider.setValue(50)  # comme un déplacement à la souris, pas un chargement
+
+    assert panel._current_profile == "Personnalisé"
+    assert panel._profile_cards["Podcast"].property("profile") == "false"
+
+
+def test_loading_a_profile_does_not_itself_leave_the_profile(qtbot, project_with_sequence):
+    _project, sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+    panel.set_sequence(sequence)
+
+    panel._select_profile("Voix faible")
+
+    assert panel._current_profile == "Voix faible"
+
+
+def test_closing_is_requested_by_both_the_cross_and_cancel(qtbot, project_with_sequence):
+    _project, _sequence, ffmpeg_service = project_with_sequence
+    panel = _panel(qtbot, ffmpeg_service)
+    closed = []
+    panel.close_requested.connect(lambda: closed.append(True))
+    # Aucune séquence chargée : la fenêtre doit malgré tout pouvoir se fermer.
+
+    panel._close_button.click()
+    panel._cancel_button.click()
+
+    assert closed == [True, True]
+
+
+def test_the_dialog_closes_on_that_request(qtbot, project_with_sequence):
+    from app.ui.processing_dialog import ProcessingDialog
+
+    _project, _sequence, ffmpeg_service = project_with_sequence
+    panel = AudioProcessingPanel(ffmpeg_service)
+    dialog = ProcessingDialog(panel)
+    qtbot.addWidget(dialog)
+    dialog.show()
+
+    panel.close_requested.emit()
+
+    assert not dialog.isVisible()

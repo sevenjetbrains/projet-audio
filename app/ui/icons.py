@@ -151,6 +151,11 @@ def _draw_fullscreen(p: QPainter) -> None:
         p.drawPath(_line(corner_x, corner_y, corner_x, corner_y + 4.5 * dy))
 
 
+def _draw_close(p: QPainter) -> None:
+    p.drawPath(_line(5.5, 5.5, 14.5, 14.5))
+    p.drawPath(_line(14.5, 5.5, 5.5, 14.5))
+
+
 def _draw_upload(p: QPainter) -> None:
     """Flèche montante au-dessus d'un plateau : « déposer un fichier ici »."""
     p.drawPath(_line(10, 3.5, 10, 12.5))
@@ -193,6 +198,7 @@ _DRAWINGS: dict[str, Callable[[QPainter], None]] = {
     "mute": _draw_mute,
     "camera": _draw_camera,
     "fullscreen": _draw_fullscreen,
+    "close": _draw_close,
     "upload": _draw_upload,
     "folder": _draw_folder,
     "alert": _draw_alert,

@@ -411,6 +411,7 @@ class MainWindow(QMainWindow):
         self._waveform_widget.set_theme(theme)
         self._waveform_overview.set_theme(theme)
         self._sequence_list.set_theme(theme)
+        self._audio_processing_panel.set_theme(theme)
 
     def _toggle_theme(self) -> None:
         """Bascule entre les deux thèmes depuis la barre d'outils."""

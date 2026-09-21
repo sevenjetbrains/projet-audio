@@ -53,8 +53,7 @@ SHORTCUTS_HELP: dict[str, list[tuple[str, str]]] = {
         ("Ctrl+M", "Fusionner et prévisualiser"),
     ],
     "Traitement audio": [
-        ("Ctrl+Return", "Appliquer à la séquence"),
-        ("Ctrl+Shift+Return", "Appliquer à la sélection"),
+        ("Ctrl+Return", "Appliquer le traitement (à la sélection entière si elle en compte plusieurs)"),
         ("Ctrl+R", "Réinitialiser le traitement"),
     ],
     "Aide": [("F1", "Afficher cette liste")],

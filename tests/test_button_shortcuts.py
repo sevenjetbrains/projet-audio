@@ -39,7 +39,6 @@ def test_expected_button_shortcuts_are_registered(window):
         window._sequence_list._rename_button: "F2",
         window._sequence_list._play_button: "Ctrl+L",
         window._audio_processing_panel._apply_button: "Ctrl+Return",
-        window._audio_processing_panel._apply_selection_button: "Ctrl+Shift+Return",
         window._audio_processing_panel._reset_button: "Ctrl+R",
         window._merge_preview_button: "Ctrl+M",
         window._transport_controls._back_button: "Alt+Left",
@@ -131,4 +130,4 @@ def test_help_menu_shows_all_shortcuts(window, monkeypatch):
 
     title, html = shown[0][1], shown[0][2]
     assert title == "Raccourcis clavier"
-    assert "Supprimer" in html and "Fusionner et prévisualiser" in html and "Appliquer à la séquence" in html
+    assert "Supprimer" in html and "Fusionner et prévisualiser" in html and "Appliquer le traitement" in html

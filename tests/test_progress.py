@@ -229,7 +229,7 @@ def test_processing_panel_progress_bar_is_determinate_and_fed(qtbot, project):
 
     seen = []
     panel._progress_bar.valueChanged.connect(seen.append)
-    panel._gain_spin.setValue(3.0)
+    panel._gain_slider.set_value(3.0)
     with qtbot.waitSignal(panel.processed, timeout=10000):
         panel._on_apply_clicked()
 
