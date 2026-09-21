@@ -63,7 +63,14 @@ def process_sequence(
         if on_progress:
             on_progress(filters_start)
 
-    filter_chain = build_filter_chain(sequence.audio_settings, effective_duration)
+    # La normalisation par crête a besoin de connaître la crête du fichier : une passe de
+    # mesure, faite seulement dans ce mode (la normalisation en loudness, elle, se suffit à elle-même).
+    settings = sequence.audio_settings
+    measured_peak_db = None
+    if settings.normalize and settings.normalize_mode == "peak":
+        measured_peak_db = ffmpeg_service.measure_peak_db(source_path)
+
+    filter_chain = build_filter_chain(settings, effective_duration, measured_peak_db)
 
     if filter_chain is None:
         if on_progress:

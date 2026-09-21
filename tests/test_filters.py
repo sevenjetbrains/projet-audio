@@ -48,14 +48,50 @@ def test_compression():
     assert chain.startswith("acompressor=")
 
 
-def test_normalize_peak_vs_loudness():
-    peak_chain = build_filter_chain(AudioSettings(normalize=True, normalize_mode="peak"), duration=5.0)
-    assert peak_chain == "dynaudnorm"
+def test_compression_carries_its_ratio_and_threshold():
+    settings = AudioSettings(compression=True, compression_ratio=4.0, compression_threshold_db=-24.0)
 
+    chain = build_filter_chain(settings, duration=5.0)
+
+    assert "threshold=-24.0dB" in chain and "ratio=4.0" in chain
+
+
+def test_loudness_normalisation_carries_its_target():
     loud_chain = build_filter_chain(
         AudioSettings(normalize=True, normalize_mode="loudness", normalize_target_lufs=-18.0), duration=5.0
     )
+
     assert "loudnorm=I=-18.0" in loud_chain
+
+
+def test_peak_normalisation_raises_the_measured_peak_to_the_target():
+    settings = AudioSettings(normalize=True, normalize_mode="peak", normalize_peak_dbfs=-1.0)
+
+    chain = build_filter_chain(settings, duration=5.0, measured_peak_db=-7.0)
+
+    assert chain == "volume=6.00dB"
+
+
+def test_peak_normalisation_attenuates_a_file_that_is_too_hot():
+    settings = AudioSettings(normalize=True, normalize_mode="peak", normalize_peak_dbfs=-1.0)
+
+    chain = build_filter_chain(settings, duration=5.0, measured_peak_db=0.0)
+
+    assert chain == "volume=-1.00dB"
+
+
+def test_peak_normalisation_of_an_already_correct_file_adds_nothing():
+    settings = AudioSettings(normalize=True, normalize_mode="peak", normalize_peak_dbfs=-1.0)
+
+    assert build_filter_chain(settings, duration=5.0, measured_peak_db=-1.0) is None
+
+
+def test_peak_normalisation_without_a_measurement_is_skipped():
+    """Une fonction pure ne peut pas mesurer le fichier : sans mesure, l'étape saute
+    plutôt que d'appliquer un gain arbitraire."""
+    settings = AudioSettings(normalize=True, normalize_mode="peak")
+
+    assert build_filter_chain(settings, duration=5.0) is None
 
 
 def test_order_cleanup_before_gain_and_fades():

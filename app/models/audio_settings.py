@@ -25,10 +25,13 @@ class AudioSettings:
     eq_treble_db: float = 0.0
 
     compression: bool = False
+    compression_ratio: float = 2.5
+    compression_threshold_db: float = -18.0
 
     normalize: bool = False
     normalize_mode: str = "peak"
     normalize_target_lufs: float = -16.0
+    normalize_peak_dbfs: float = -1.0
 
     silence_removal: bool = False
     silence_threshold_db: float = -35.0

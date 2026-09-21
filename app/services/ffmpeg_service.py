@@ -18,6 +18,7 @@ from app.utils.progress import sub_progress
 
 _TIME_PATTERN = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 _VERSION_PATTERN = re.compile(r"ffmpeg version n?(\d+(?:\.\d+)*)")
+_MAX_VOLUME_PATTERN = re.compile(r"max_volume:\s*(-?\d+(?:\.\d+)?) dB")
 _SILENCE_START_PATTERN = re.compile(r"silence_start:\s*(-?\d+\.?\d*)")
 _SILENCE_END_PATTERN = re.compile(r"silence_end:\s*(-?\d+\.?\d*)")
 
@@ -67,6 +68,19 @@ class FFmpegService:
             return ""
         match = _VERSION_PATTERN.match(output)
         return match.group(1) if match else ""
+
+    def measure_peak_db(self, audio_path: str) -> float:
+        """Crête du fichier en dBFS (0 = pleine échelle), mesurée par `volumedetect`.
+
+        Retourne 0.0 si la mesure échoue : la normalisation par crête n'appliquera alors
+        qu'une atténuation vers la cible, jamais une amplification à l'aveugle."""
+        cmd = [self._ffmpeg_path, "-i", audio_path, "-af", "volumedetect", "-f", "null", "-"]
+        try:
+            lines = self._run(cmd)
+        except FFmpegExecutionError:
+            return 0.0
+        match = _MAX_VOLUME_PATTERN.search("".join(lines))
+        return float(match.group(1)) if match else 0.0
 
     def extract_audio(
         self,

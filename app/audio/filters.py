@@ -9,8 +9,13 @@ from app.models.audio_settings import AudioSettings
 
 _NOISE_REDUCTION_NR = {"faible": 6, "moyenne": 12, "forte": 20}
 
-# Valeurs par défaut de compression légère adaptées à une voix parlée (§21).
-_COMPRESSION_DEFAULT = "acompressor=threshold=-18dB:ratio=3:attack=5:release=50:makeup=2"
+# Attaque/relâchement d'une compression douce de voix parlée (§21) : seuls le seuil et le
+# ratio sont réglables, ces deux constantes de temps conviennent à la parole dans tous les cas.
+_COMPRESSION_ATTACK_MS = 5
+_COMPRESSION_RELEASE_MS = 50
+_COMPRESSION_MAKEUP_DB = 2
+# En deçà de cet écart, la correction de crête est inaudible et ne vaut pas un filtre de plus.
+_MIN_PEAK_CORRECTION_DB = 0.05
 
 
 def gain_filter(gain_db: float) -> str | None:
@@ -56,18 +61,43 @@ def eq_filters(bass_db: float, mid_db: float, treble_db: float) -> list[str]:
     return filters
 
 
-def compression_filter() -> str:
-    return _COMPRESSION_DEFAULT
+def compression_filter(ratio: float = 2.5, threshold_db: float = -18.0) -> str:
+    """Compression douce : `ratio` (2,5 : 1) et `threshold_db` (-18 dB) sont les deux réglages exposés."""
+    return (
+        f"acompressor=threshold={threshold_db}dB:ratio={ratio}"
+        f":attack={_COMPRESSION_ATTACK_MS}:release={_COMPRESSION_RELEASE_MS}:makeup={_COMPRESSION_MAKEUP_DB}"
+    )
 
 
 def normalize_filter(mode: str, target_lufs: float) -> str:
+    """Normalisation en loudness (EBU R128) ; `mode` autre que « loudness » retombe sur un nivellement dynamique.
+
+    La normalisation par crête n'entre pas ici : elle demande de mesurer le fichier au préalable
+    (voir `peak_normalize_filter`), ce qu'une fonction pure ne peut pas faire."""
     if mode == "loudness":
         return f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11"
     return "dynaudnorm"
 
 
-def build_filter_chain(settings: AudioSettings, duration: float) -> str | None:
-    """Compose la chaîne complète dans l'ordre : nettoyage -> EQ -> compression -> normalisation -> gain -> fades."""
+def peak_normalize_filter(target_dbfs: float, measured_peak_db: float) -> str | None:
+    """Gain qui amène la crête mesurée exactement à `target_dbfs` ; None si l'écart est négligeable.
+
+    C'est la vraie normalisation par crête : un gain constant, donc sans effet sur la dynamique
+    (contrairement à `dynaudnorm`, qui la comprime)."""
+    correction = target_dbfs - measured_peak_db
+    if abs(correction) < _MIN_PEAK_CORRECTION_DB:
+        return None
+    return f"volume={correction:.2f}dB"
+
+
+def build_filter_chain(
+    settings: AudioSettings, duration: float, measured_peak_db: float | None = None
+) -> str | None:
+    """Compose la chaîne complète dans l'ordre : nettoyage -> EQ -> compression -> normalisation -> gain -> fades.
+
+    `measured_peak_db` est la crête du fichier source, mesurée en amont : elle n'est nécessaire
+    qu'en normalisation par crête, et son absence fait simplement sauter cette étape (le reste
+    de la chaîne, lui, ne dépend d'aucune mesure)."""
     filters: list[str] = []
 
     if settings.noise_reduction:
@@ -84,10 +114,15 @@ def build_filter_chain(settings: AudioSettings, duration: float) -> str | None:
     filters.extend(eq_filters(settings.eq_bass_db, settings.eq_mid_db, settings.eq_treble_db))
 
     if settings.compression:
-        filters.append(compression_filter())
+        filters.append(compression_filter(settings.compression_ratio, settings.compression_threshold_db))
 
     if settings.normalize:
-        filters.append(normalize_filter(settings.normalize_mode, settings.normalize_target_lufs))
+        if settings.normalize_mode == "loudness":
+            filters.append(normalize_filter("loudness", settings.normalize_target_lufs))
+        elif measured_peak_db is not None:
+            peak = peak_normalize_filter(settings.normalize_peak_dbfs, measured_peak_db)
+            if peak:
+                filters.append(peak)
 
     gain = gain_filter(settings.gain)
     if gain:

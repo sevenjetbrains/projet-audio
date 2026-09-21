@@ -62,3 +62,27 @@ def test_reset_processing_clears_settings_and_path(project_with_sequence):
     assert sequence.processed_audio_path == ""
     assert sequence.audio_settings == AudioSettings()
     assert sequence.effective_audio_path == sequence.audio_path
+
+
+def test_peak_normalisation_measures_the_file_and_lands_on_the_target(ffmpeg_binaries, tmp_path, synthetic_wav_file):
+    """Le WAV de test culmine à -4 dBFS environ : après normalisation il doit viser -1 dBFS."""
+    from app.services.ffmpeg_service import FFmpegService
+
+    service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
+    before = service.measure_peak_db(synthetic_wav_file)
+    assert -12.0 < before < 0.0
+
+    out_path = tmp_path / "normalise.wav"
+    service.apply_filters(
+        synthetic_wav_file, str(out_path), f"volume={-1.0 - before:.2f}dB"
+    )
+
+    assert abs(service.measure_peak_db(str(out_path)) - (-1.0)) < 0.3
+
+
+def test_measuring_an_unreadable_file_reports_full_scale(ffmpeg_binaries, tmp_path):
+    from app.services.ffmpeg_service import FFmpegService
+
+    service = FFmpegService(ffmpeg_binaries.ffmpeg_path)
+
+    assert service.measure_peak_db(str(tmp_path / "absent.wav")) == 0.0

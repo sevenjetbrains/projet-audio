@@ -15,11 +15,17 @@ AUDIO_PROFILES: dict[str, AudioSettings] = {
         noise_reduction=True, noise_reduction_level="faible",
         compression=True, normalize=True, normalize_mode="loudness", normalize_target_lufs=-16.0,
     ),
+    # Salle sonorisée : on coupe le grondement de basses, on dégage la parole, on rattrape
+    # le niveau souvent faible d'une captation au fond de la salle.
     "Conférence": AudioSettings(
-        noise_reduction=True, noise_reduction_level="forte",
-        de_hum=True, normalize=True, normalize_mode="loudness",
+        noise_reduction=True, noise_reduction_level="moyenne",
+        de_hum=True, de_hum_freq=50,
+        eq_bass_db=-3.0, eq_mid_db=2.0, eq_treble_db=1.5,
+        compression=True, compression_ratio=2.5, compression_threshold_db=-18.0,
+        normalize=True, normalize_mode="loudness", normalize_target_lufs=-16.0,
+        gain=3.0, fade_in=0.04, fade_out=0.12,
     ),
-    "Enregistrement microphone": AudioSettings(
+    "Enregistrement micro": AudioSettings(
         noise_reduction=True, noise_reduction_level="moyenne",
         de_click=True, normalize=True, normalize_mode="peak",
     ),
