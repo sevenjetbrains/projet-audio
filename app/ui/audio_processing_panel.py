@@ -13,6 +13,7 @@ from PySide6.QtGui import QUndoStack
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QComboBox,
+    QInputDialog,
     QDoubleSpinBox,
     QFrame,
     QGridLayout,
@@ -34,6 +35,7 @@ from app.models.audio_settings import AudioSettings
 from app.models.project import Project
 from app.models.sequence import Sequence
 from app.services import audio_processor
+from app.services.custom_profiles import delete_custom_profile, load_custom_profiles, save_custom_profile
 from app.services.ffmpeg_service import FFmpegService
 from app.ui.controls import ProfileCard, SegmentedControl, SliderRow, ToggleSwitch
 from app.ui.design import accent_button, card_layout, flat_button, icon_button, label, section_label
@@ -121,10 +123,11 @@ class AudioProcessingPanel(QWidget):
         self._subtitle_label = label("", "dialogSubtitle")
 
         self._profile_cards: dict[str, ProfileCard] = {}
-        for name in AUDIO_PROFILES:
-            card = ProfileCard(name)
-            card.clicked.connect(self._select_profile)
-            self._profile_cards[name] = card
+        self._profiles_container = QWidget()
+        self._profiles_layout = QVBoxLayout(self._profiles_container)
+        self._profiles_layout.setContentsMargins(0, 0, 0, 0)
+        self._profiles_layout.setSpacing(10)
+        self._rebuild_profile_cards()
 
         self._noise_segments = SegmentedControl(_NOISE_LEVELS)
         self._noise_segments.changed.connect(self._on_setting_edited)
@@ -188,6 +191,10 @@ class AudioProcessingPanel(QWidget):
         self._apply_button.setMinimumHeight(46)
         self._apply_button.setMinimumWidth(210)
         self._apply_button.clicked.connect(self._on_apply_clicked)
+        self._save_profile_button = QPushButton("Enregistrer comme profil…")
+        self._save_profile_button.setMinimumHeight(46)
+        self._save_profile_button.setMinimumWidth(200)
+        self._save_profile_button.clicked.connect(self._on_save_profile_clicked)
         self._cancel_button = QPushButton("Annuler")
         self._cancel_button.setMinimumHeight(46)
         self._cancel_button.setMinimumWidth(150)
@@ -293,8 +300,7 @@ class AudioProcessingPanel(QWidget):
         layout.setSpacing(10)
         layout.addWidget(section_label("Profils"))
         layout.addSpacing(4)
-        for card in self._profile_cards.values():
-            layout.addWidget(card)
+        layout.addWidget(self._profiles_container)
         layout.addStretch(1)
         layout.addWidget(hint_card)
         layout.addWidget(self._reset_button)
@@ -451,6 +457,7 @@ class AudioProcessingPanel(QWidget):
         layout.setContentsMargins(28, 16, 28, 16)
         layout.setSpacing(12)
         layout.addLayout(texts, 1)
+        layout.addWidget(self._save_profile_button)
         layout.addWidget(self._cancel_button)
         layout.addWidget(self._apply_button)
         return footer
@@ -492,6 +499,7 @@ class AudioProcessingPanel(QWidget):
         self._profiles_column.setEnabled(enabled)
         self._apply_button.setEnabled(enabled)
         self._reset_button.setEnabled(enabled)
+        self._save_profile_button.setEnabled(enabled)
 
     def set_sequence(self, sequence: Sequence | None) -> None:
         self._sequence = sequence
@@ -528,14 +536,71 @@ class AudioProcessingPanel(QWidget):
 
     # --- Profils ---------------------------------------------------------------
 
+    def _all_profiles(self) -> dict[str, AudioSettings]:
+        """Profils prédéfinis puis ceux enregistrés par l'utilisateur, dans cet ordre d'affichage."""
+        return {**AUDIO_PROFILES, **load_custom_profiles()}
+
+    def _rebuild_profile_cards(self) -> None:
+        """Refait la colonne des profils : l'enregistrement d'un profil doit s'y voir aussitôt."""
+        for card in self._profile_cards.values():
+            # setParent(None) détache tout de suite : deleteLater seul laisserait l'ancienne
+            # vignette visible jusqu'au prochain tour de boucle Qt.
+            card.setParent(None)
+            card.deleteLater()
+        self._profile_cards = {}
+
+        for name in self._all_profiles():
+            card = ProfileCard(name, removable=name not in AUDIO_PROFILES)
+            card.clicked.connect(self._select_profile)
+            card.delete_requested.connect(self._on_delete_profile)
+            self._profiles_layout.addWidget(card)
+            self._profile_cards[name] = card
+
     def _select_profile(self, profile_name: str, load: bool = True) -> None:
         """Met le profil en évidence et, sauf indication contraire, charge ses réglages."""
         self._current_profile = profile_name
         for name, card in self._profile_cards.items():
             card.set_selected(name == profile_name)
-        settings = AUDIO_PROFILES.get(profile_name)
+        settings = self._all_profiles().get(profile_name)
         if load and settings is not None:
             self._load_settings(settings)
+
+    def _on_save_profile_clicked(self) -> None:
+        """Enregistre les réglages à l'écran sous un nom, pour les retrouver sur une autre séquence."""
+        name, accepted = QInputDialog.getText(
+            self, "Enregistrer comme profil", "Nom du profil :", text=""
+        )
+        name = name.strip()
+        if not accepted or not name:
+            return
+        if name in AUDIO_PROFILES:
+            QMessageBox.warning(
+                self,
+                "AudioCut Studio",
+                f"« {name} » est un profil prédéfini : choisissez un autre nom.",
+            )
+            return
+        if name in load_custom_profiles():
+            answer = QMessageBox.question(
+                self, "AudioCut Studio", f"Remplacer le profil « {name} » ?"
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        save_custom_profile(name, self._read_settings())
+        self._rebuild_profile_cards()
+        self._select_profile(name, load=False)
+        self._status_label.setText(f"Profil « {name} » enregistré.")
+
+    def _on_delete_profile(self, name: str) -> None:
+        answer = QMessageBox.question(self, "AudioCut Studio", f"Supprimer le profil « {name} » ?")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        delete_custom_profile(name)
+        self._rebuild_profile_cards()
+        if self._current_profile == name:
+            self._select_profile(CUSTOM_PROFILE_LABEL, load=False)
+        self._status_label.setText(f"Profil « {name} » supprimé.")
 
     def _on_setting_edited(self, *_args) -> None:
         """Toucher un réglage quitte le profil : il ne décrit plus ce qui est à l'écran."""

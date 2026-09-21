@@ -112,13 +112,20 @@ class SegmentedControl(QWidget):
 
 
 class ProfileCard(QFrame):
-    """Vignette de profil : son nom, et une coche à droite quand c'est celui qui est appliqué."""
+    """Vignette de profil : son nom, et une coche à droite quand c'est celui qui est appliqué.
+
+    Un profil enregistré par l'utilisateur (`removable`) se supprime par un clic droit ;
+    les profils prédéfinis, eux, font partie de l'application."""
 
     clicked = Signal(str)
+    delete_requested = Signal(str)
 
-    def __init__(self, name: str, parent: QWidget | None = None) -> None:
+    def __init__(self, name: str, removable: bool = False, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._name = name
+        self._removable = removable
+        if removable:
+            self.setToolTip("Profil enregistré — clic droit pour le supprimer")
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)  # sans quoi le `:hover` de la feuille de style dort
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -141,8 +148,13 @@ class ProfileCard(QFrame):
             widget.style().polish(widget)
 
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+        if not self.rect().contains(event.position().toPoint()):
+            super().mouseReleaseEvent(event)
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._name)
+        elif event.button() == Qt.MouseButton.RightButton and self._removable:
+            self.delete_requested.emit(self._name)
         super().mouseReleaseEvent(event)
 
 
