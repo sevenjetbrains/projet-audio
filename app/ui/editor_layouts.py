@@ -17,9 +17,11 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QVBoxLayout,
@@ -33,9 +35,7 @@ from app.ui.selected_sequence_card import SelectedSequenceCard
 _WAVEFORM_HINT = "clic = lecture · glisser = sélection"
 # Hauteur plancher de la waveform : la disposition B lui donne toute la largeur, autant qu'elle
 # y gagne aussi en hauteur, sinon le bandeau du bas se réduit à une ligne de vagues.
-_WAVEFORM_MIN_HEIGHT = {"A": 110, "B": 170}
-# Répartition de départ entre les colonnes et le bandeau de la waveform (disposition B).
-_B_SPLIT_SIZES = (620, 380)
+_WAVEFORM_MIN_HEIGHT = {"A": 110, "B": 110}
 
 
 @dataclass(frozen=True)
@@ -64,8 +64,12 @@ class EditorWidgets:
 
 def build_body(name: str, widgets: EditorWidgets) -> QWidget:
     """Corps de l'éditeur (tout sauf la barre d'outils) dans la disposition demandée."""
-    builder: Callable[[EditorWidgets], QWidget] = _BUILDERS[get_layout(name)]
-    widgets.waveform.setMinimumHeight(_WAVEFORM_MIN_HEIGHT[get_layout(name)])
+    name = get_layout(name)
+    widgets.waveform.setMinimumHeight(_WAVEFORM_MIN_HEIGHT[name])
+    # En B la waveform est juste sous le lecteur : l'aide « l'image suit la waveform » y est
+    # à la fois redondante et coûteuse (deux lignes de hauteur dans une colonne large).
+    widgets.video_player_panel.set_hint_visible(name == "A")
+    builder: Callable[[EditorWidgets], QWidget] = _BUILDERS[name]
     return builder(widgets)
 
 
@@ -205,15 +209,40 @@ def _build_layout_b(widgets: EditorWidgets) -> QWidget:
 
     # L'aperçu vidéo occupe toute la largeur centrale : sans poignée, il imposerait sa hauteur
     # (jusqu'à 420 px) au bandeau de la waveform. La séparation se règle donc à la souris.
-    body = QSplitter(Qt.Orientation.Vertical)
-    body.setObjectName("editorSplitter")
-    body.setChildrenCollapsible(False)
+    body = _EditorSplitter()
     body.addWidget(columns)
     body.addWidget(_b_waveform_dock(widgets))
-    body.setStretchFactor(0, 1)
-    body.setStretchFactor(1, 0)
-    body.setSizes(list(_B_SPLIT_SIZES))
+    # Les colonnes gardent leur hauteur naturelle, la place en plus va à la waveform : c'est
+    # elle qu'on est venu chercher dans cette disposition.
+    body.setStretchFactor(0, 0)
+    body.setStretchFactor(1, 1)
     return body
+
+
+class _EditorSplitter(QSplitter):
+    """Séparation verticale colonnes / waveform, répartie à la première ouverture.
+
+    `setSizes()` à la construction ne sert à rien : le splitter n'a pas encore sa hauteur et Qt
+    ramène les valeurs à la taille par défaut. La répartition se fait donc au premier affichage,
+    quand la hauteur réelle est connue : les colonnes prennent ce qu'elles demandent, la waveform
+    prend le reste (sans descendre sous son minimum).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(Qt.Orientation.Vertical)
+        self.setObjectName("editorSplitter")
+        self.setChildrenCollapsible(False)
+        self._balanced = False
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._balanced or self.count() != 2:
+            return
+        self._balanced = True
+        total = self.height() - self.handleWidth()
+        columns = self.widget(0).sizeHint().height()
+        dock = max(total - columns, self.widget(1).minimumSizeHint().height())
+        self.setSizes([max(total - dock, self.widget(0).minimumSizeHint().height()), dock])
 
 
 def _b_sequences_panel(widgets: EditorWidgets) -> QWidget:
@@ -224,27 +253,46 @@ def _b_sequences_panel(widgets: EditorWidgets) -> QWidget:
 
 
 def _b_player_panel(widgets: EditorWidgets) -> QWidget:
+    """Colonne du lecteur. Elle défile pour elle-même, comme la colonne de droite : sur une
+    fenêtre basse, c'est elle qui se resserre, et jamais le bandeau de la waveform qui disparaît."""
     panel, layout = _panel("centerPanel", (16, 10, 16, 10), 9)
     layout.addWidget(widgets.video_player_panel, 1)
     layout.addWidget(_transport_card(widgets))
-    return panel
+    return _scrollable_column(panel)
 
 
 def _b_source_panel(widgets: EditorWidgets) -> QWidget:
-    """Colonne « inspecteur » : la source, la séquence sélectionnée, puis les outils de découpage
-    et de fusion que la disposition A garde au centre."""
+    """Colonne « inspecteur » : la source, la séquence sélectionnée, le traitement et la fusion.
+
+    Elle défile pour elle-même : sans cela, sa hauteur s'imposerait au corps de l'éditeur et
+    repousserait le bandeau de la waveform hors de l'écran sur une fenêtre un peu basse.
+    """
     panel, layout = _panel("rightPanel", (16, 14, 16, 14), 12)
-    panel.setFixedWidth(widgets.right_width)
     layout.addWidget(section_header("Source"))
     layout.addWidget(widgets.video_panel)
     layout.addWidget(section_header("Séquence sélectionnée"))
     layout.addWidget(SelectedSequenceCard())
     layout.addWidget(_processing_button(widgets))
-    layout.addWidget(widgets.silence_card)
     layout.addLayout(_fusion_column(widgets))
     layout.addStretch(1)
     layout.addWidget(_save_state_card(widgets))
-    return panel
+    return _scrollable_column(panel, widgets.right_width)
+
+
+def _scrollable_column(panel: QWidget, width: int | None = None) -> QScrollArea:
+    """Colonne qui défile verticalement, sans cadre ni défilement horizontal.
+
+    Sans cela, la plus haute des trois colonnes imposerait sa hauteur au corps de l'éditeur et
+    repousserait le bandeau de la waveform hors de l'écran sur une fenêtre un peu basse.
+    """
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.Shape.NoFrame)
+    if width is not None:
+        area.setFixedWidth(width)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    area.setWidget(panel)
+    return area
 
 
 def _b_waveform_dock(widgets: EditorWidgets) -> QWidget:
@@ -252,7 +300,13 @@ def _b_waveform_dock(widgets: EditorWidgets) -> QWidget:
     layout.addLayout(_waveform_header(widgets))
     layout.addWidget(widgets.waveform_overview)
     layout.addWidget(widgets.waveform, 1)
-    layout.addWidget(widgets.selection_card)
+    # Les deux cartes côte à côte : le découpage par silences a besoin de largeur pour ses quatre
+    # réglages, et la pleine largeur du bandeau la lui donne sans coûter une ligne de hauteur.
+    tools = QHBoxLayout()
+    tools.setSpacing(12)
+    tools.addWidget(widgets.selection_card, 3)
+    tools.addWidget(widgets.silence_card, 2)
+    layout.addLayout(tools)
     return panel
 
 

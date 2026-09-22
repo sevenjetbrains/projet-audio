@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Dernier point de reprise : `main` à jour (github.com/sevenjetbrains/projet-audio), 817 tests verts (`pytest`).
+Dernier point de reprise : `main` à jour (github.com/sevenjetbrains/projet-audio), 821 tests verts (`pytest`).
 
 **Fait avant cette session :** tout le pipeline (extraction, sélection, séquences, traitement audio non destructif, fusion, export multi-formats, projet .acsproject, undo/redo, autosave, thèmes, raccourcis + aide F1), puis la maquette de la fenêtre principale, le lecteur vidéo intégré, le plein écran avec barre de contrôle, l'aperçu fluide (copie allégée), l'écoute de la sélection, la boucle, les poignées de bornes sur la waveform, l'ajustement/division des séquences existantes et la comparaison A/B.
 
@@ -49,6 +49,8 @@ Dernier point de reprise : `main` à jour (github.com/sevenjetbrains/projet-audi
 - `app/ui/selected_sequence_card.py` : carte « séquence sélectionnée », propre à la disposition B. Elle n'existe donc pas en A : la fenêtre la récupère par `findChild` après chaque bascule (`_adopt_layout_extras`) et `_selected_sequence_card` vaut `None` en A. Le profil de traitement de la maquette n'est pas affiché : il n'est mémorisé nulle part (seul l'existence d'un `processed_audio_path` est vérifiable).
 - `app/config/layouts.py` : identifiants + préférence persistée dans `layout.json` (ignoré par git), calqué sur `themes.py`. Bouton « Disposition A/B » dans la barre d'outils (il tourne en rond) et sous-menu Affichage > Disposition.
 - QSS : `#bottomPanel` (bandeau du bas) et la poignée `QSplitter#editorSplitter`.
+- Corrigé en lançant l'application (fenêtre de 814 px) : le bandeau de la waveform passait sous la ligne de flottaison et la carte « Découpage par silences » débordait de la colonne de droite. Les trois colonnes de B défilent maintenant chacune pour elle-même (`_scrollable_column`), le découpage par silences est passé à côté de la carte Sélection dans le bandeau (il lui faut de la largeur), et l'aide « l'image suit la waveform » est masquée en B (`VideoPlayerPanel.set_hint_visible`). Minimum du corps : 816 px → 578.
+- `_EditorSplitter` répartit au premier `showEvent`, pas à la construction : un `setSizes()` posé avant que le splitter ait sa hauteur est ramené à la taille par défaut, et toute la place allait au bandeau.
 
 **Prochaine étape :** aucune identifiée — demander à l'utilisateur, ou proposer une amélioration (pistes non traitées : export d'un rapport/liste des séquences, recherche-filtre dans la liste, aimantation des bornes sur les silences détectés ou sur un passage par zéro).
 

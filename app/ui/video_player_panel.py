@@ -124,8 +124,8 @@ class VideoPlayerPanel(QWidget):
         controls.addStretch(1)
         controls.addWidget(self._rate_combo)
 
-        hint = label(_HINT, "hintLabel")
-        hint.setWordWrap(True)
+        self._hint_label = label(_HINT, "hintLabel")
+        self._hint_label.setWordWrap(True)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -135,10 +135,14 @@ class VideoPlayerPanel(QWidget):
         layout.addWidget(self._position_slider)
         layout.addLayout(timecodes)
         layout.addLayout(controls)
-        layout.addWidget(hint)
+        layout.addWidget(self._hint_label)
         return layout
 
     # --- API publique ------------------------------------------------------
+
+    def set_hint_visible(self, visible: bool) -> None:
+        """Masque l'aide « l'image suit la waveform » là où la waveform est déjà sous le lecteur."""
+        self._hint_label.setVisible(visible)
 
     def set_media_info(self, media_info) -> None:
         """Renseigne la vignette de format affichée sur l'image (résolution de la source)."""

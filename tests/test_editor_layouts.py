@@ -164,6 +164,37 @@ def test_layout_b_lets_the_waveform_band_be_resized(window):
     assert not splitter.childrenCollapsible()
 
 
+@pytest.mark.parametrize("name", list(layouts.LAYOUTS))
+def test_no_layout_pushes_its_content_out_of_a_normal_window(window, name):
+    """Garde-fou : une colonne trop haute repousserait la waveform sous la ligne de flottaison.
+
+    Constaté sur une fenêtre de 814 px : le bandeau du bas n'était plus atteignable qu'en
+    faisant défiler tout l'éditeur. Les colonnes défilent donc pour elles-mêmes.
+    """
+    window.apply_layout(name)
+
+    assert window._body_scroller.widget().minimumSizeHint().height() <= 620
+
+
+def test_layout_b_hides_the_player_hint_that_layout_a_shows(window):
+    """En B la waveform est juste sous le lecteur : l'aide « l'image suit la waveform » y est
+    redondante, et elle coûte deux lignes de hauteur dans une colonne large."""
+    hint = window._video_player_panel._hint_label
+
+    window.apply_layout("A")
+    assert hint.isVisibleTo(window._video_player_panel)
+
+    window.apply_layout("B")
+    assert not hint.isVisibleTo(window._video_player_panel)
+
+
+def test_the_silence_card_sits_beside_the_selection_card_in_layout_b(window):
+    """Ses quatre réglages ne tiennent pas dans une colonne de 360 px : il lui faut la largeur du bandeau."""
+    window.apply_layout("B")
+
+    assert _hosting_panel(window._silence_card) == "bottomPanel"
+
+
 def test_the_selected_sequence_card_belongs_to_layout_b_only(window):
     window.apply_layout("B")
     assert isinstance(window._selected_sequence_card, SelectedSequenceCard)
