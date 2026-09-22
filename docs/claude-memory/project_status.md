@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Dernier point de reprise : commit `7b35e7b` sur `main` (github.com/sevenjetbrains/projet-audio), 653 tests verts (`pytest`).
+Dernier point de reprise : `main` à jour (github.com/sevenjetbrains/projet-audio), 817 tests verts (`pytest`).
 
 **Fait avant cette session :** tout le pipeline (extraction, sélection, séquences, traitement audio non destructif, fusion, export multi-formats, projet .acsproject, undo/redo, autosave, thèmes, raccourcis + aide F1), puis la maquette de la fenêtre principale, le lecteur vidéo intégré, le plein écran avec barre de contrôle, l'aperçu fluide (copie allégée), l'écoute de la sélection, la boucle, les poignées de bornes sur la waveform, l'ajustement/division des séquences existantes et la comparaison A/B.
 
@@ -43,6 +43,13 @@ Dernier point de reprise : commit `7b35e7b` sur `main` (github.com/sevenjetbrain
 - Colonnes latérales de l'éditeur rognées à parts égales quand l'écran est trop étroit (`_column_widths`), colonne de l'accueil dimensionnée dans `WelcomeView.resizeEvent` d'après la largeur réelle de la page.
 - Le libellé d'aide de la waveform imposait 555 px au panneau central : passé en `QSizePolicy.Ignored`.
 
+**Fait ensuite (deuxième disposition de la fenêtre principale, d'après une maquette fournie) :**
+- `app/ui/editor_layouts.py` : les panneaux de l'éditeur sont construits par disposition (`build_body(name, EditorWidgets)`), la fenêtre ne fait plus que les posséder. Changer de disposition rebâtit ce seul arbre ; les widgets partagés sont reparentés et gardent leur état, leurs connexions et la lecture en cours.
+- Disposition « B » : séquences à gauche, lecteur au centre, colonne « inspecteur » à droite (source, séquence sélectionnée, traitement, découpage par silences, fusion), waveform + sélection sur toute la largeur en bas, dans un `QSplitter` vertical (sans lui, l'aperçu vidéo pleine largeur monte à 420 px et écrase le bandeau).
+- `app/ui/selected_sequence_card.py` : carte « séquence sélectionnée », propre à la disposition B. Elle n'existe donc pas en A : la fenêtre la récupère par `findChild` après chaque bascule (`_adopt_layout_extras`) et `_selected_sequence_card` vaut `None` en A. Le profil de traitement de la maquette n'est pas affiché : il n'est mémorisé nulle part (seul l'existence d'un `processed_audio_path` est vérifiable).
+- `app/config/layouts.py` : identifiants + préférence persistée dans `layout.json` (ignoré par git), calqué sur `themes.py`. Bouton « Disposition A/B » dans la barre d'outils (il tourne en rond) et sous-menu Affichage > Disposition.
+- QSS : `#bottomPanel` (bandeau du bas) et la poignée `QSplitter#editorSplitter`.
+
 **Prochaine étape :** aucune identifiée — demander à l'utilisateur, ou proposer une amélioration (pistes non traitées : export d'un rapport/liste des séquences, recherche-filtre dans la liste, aimantation des bornes sur les silences détectés ou sur un passage par zéro).
 
 **Pièges connus :**
@@ -61,6 +68,8 @@ Dernier point de reprise : commit `7b35e7b` sur `main` (github.com/sevenjetbrain
 - Une fenêtre qui importe une fonction de service par son nom ne voit pas un `monkeypatch` du module de service : patcher `app.ui.<fenêtre>.<fonction>`.
 - `should_cancel` est consulté pendant l'encodage, pas seulement entre deux étapes : un test qui compte les appels annule plus tôt qu'il ne croit.
 - `SliderRow.set_value()` est silencieux (c'est un chargement) ; simuler une édition utilisateur dans un test demande `row.slider.setValue(...)`.
+- Une disposition doit poser **tous** les widgets partagés : un widget oublié se retrouve sans parent, donc en fenêtre flottante. `tests/test_editor_layouts.py::test_every_layout_hosts_every_shared_panel` monte la garde.
+- `QScrollArea.setWidget()` détruit le widget précédent : détacher l'ancien corps par `takeWidget()` **avant** de construire le nouveau, sinon les panneaux partagés partent avec lui.
 - Les raccourcis à une seule touche (`I`, `O`, `L`, `M`, `F`) sont des `QShortcut` de fenêtre : ils volent la frappe aux champs de saisie non modaux. Le renommage passe par un `QInputDialog` modal, donc sans conflit — garder cette contrainte en tête avant d'ajouter un champ éditable en ligne.
 
 Voir aussi [[feedback-commit-push-autonomy]] et [[feedback-autonomous-phases]].

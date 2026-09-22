@@ -125,6 +125,22 @@ QMenu::separator {
     background-color: $bg;
 }
 
+/* Bandeau de la waveform, sous les colonnes (disposition B). */
+#bottomPanel {
+    background-color: $bg;
+    border-top: 1px solid $border;
+}
+
+/* Poignée entre les colonnes et le bandeau de la waveform (disposition B). */
+QSplitter#editorSplitter::handle:vertical {
+    height: 7px;
+    background-color: $surface;
+}
+
+QSplitter#editorSplitter::handle:vertical:hover {
+    background-color: $border_strong;
+}
+
 QFrame[card="true"] {
     background-color: $card;
     border: 1px solid $border;

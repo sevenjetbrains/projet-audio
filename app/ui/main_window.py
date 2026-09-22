@@ -1,7 +1,10 @@
 """Fenêtre principale d'AudioCut Studio.
 
-Disposition en trois colonnes : lecteur vidéo et source à gauche, waveform et
-outils de découpage au centre, liste des séquences à droite.
+Deux dispositions au choix (menu Affichage ou bouton de la barre d'outils), décrites
+dans `app/ui/editor_layouts.py` : « A » en trois colonnes (lecteur vidéo et source à
+gauche, waveform et outils de découpage au centre, séquences à droite) et « B » avec
+les séquences à gauche, le lecteur au centre, la source à droite et la waveform sur
+toute la largeur en bas. Le choix est mémorisé d'un lancement à l'autre.
 """
 
 from datetime import datetime
@@ -13,7 +16,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QDoubleSpinBox,
     QFileDialog,
-    QHBoxLayout,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -21,13 +23,13 @@ from PySide6.QtWidgets import (
     QFrame,
     QProgressDialog,
     QScrollArea,
-    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from app.config.constants import APP_NAME, SUPPORTED_VIDEO_FORMATS
+from app.config.layouts import LAYOUTS, get_layout, load_layout_preference, next_layout, save_layout_preference
 from app.config.settings import FFmpegBinaries
 from app.config.themes import THEMES, get_theme, load_stylesheet, load_theme_preference, save_theme_preference
 from app.services import marker_service
@@ -46,11 +48,13 @@ from app.services.sequence_service import create_sequences_from_ranges, detect_s
 from app.ui.app_toolbar import AppToolBar
 from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.auto_split_dialog import AutoSplitDialog
-from app.ui.design import card_layout, flat_button, icon_button, label, section_header
+from app.ui.design import flat_button, label
+from app.ui.editor_layouts import EditorWidgets, build_body
 from app.ui.export_dialog import ExportDialog
 from app.ui.icons import set_icon_palette
 from app.ui.processing_dialog import ProcessingDialog
 from app.ui.screen_fit import available_rect, available_size, fit_size, position_within
+from app.ui.selected_sequence_card import SelectedSequenceCard
 from app.ui.selection_card import SelectionCard
 from app.ui.sequence_list import SequenceListWidget
 from app.ui.shortcuts import set_button_shortcut, shortcuts_help_html
@@ -79,7 +83,6 @@ _CENTER_PANEL_MIN_WIDTH = 590
 _WINDOW_SIZE = (1440, 900)
 _AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
 _SAVE_STATE_REFRESH_MS = 30 * 1000
-_WAVEFORM_HINT = "clic = lecture · glisser = sélection"
 _EMPTY_SUMMARY = "0 séquence · aucune durée estimée"
 # Menus sans objet tant qu'aucun projet n'est ouvert (grisés sur l'écran d'accueil).
 _PROJECT_MENUS = ("Édition", "Séquences", "Traitement")
@@ -92,6 +95,11 @@ class MainWindow(QMainWindow):
     def __init__(self, ffmpeg_binaries: FFmpegBinaries) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
+        self._layout_name = get_layout(load_layout_preference())
+        # Carte « séquence sélectionnée » : propre à la disposition B, donc reconstruite à chaque
+        # changement de disposition et absente des autres (voir `_adopt_layout_extras`).
+        self._selected_sequence_card: SelectedSequenceCard | None = None
+        self._layout_actions: dict[str, QAction] = {}
         self._side_width, self._right_width = self._column_widths()
         self.resize(*self._fitted_size())
         self.setAcceptDrops(True)
@@ -204,6 +212,7 @@ class MainWindow(QMainWindow):
         self._processing_action = self._action(
             "Appliquer un traitement…", None, self._open_processing_dialog, "Traitement"
         )
+        self._layout_action = self._action(f"Disposition {self._layout_name}", None, self._toggle_layout)
         self._theme_toggle_action = self._action("Changer de thème", None, self._toggle_theme)
         self._theme_toggle_action.setProperty("toolbar_icon", "moon")
         self._shortcuts_action = self._action("Raccourcis clavier", "F1", self._show_shortcuts_help, "F1 Aide")
@@ -244,25 +253,18 @@ class MainWindow(QMainWindow):
                 (self._undo_action, self._redo_action),
                 (self._auto_split_action, self._processing_action, self._export_action),
             ),
-            trailing=(self._theme_toggle_action, self._shortcuts_action),
+            trailing=(self._layout_action, self._theme_toggle_action, self._shortcuts_action),
         )
 
-        body = QWidget()
-        body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(0)
-        body_layout.addWidget(self._build_side_panel())
-        body_layout.addWidget(self._build_center_panel(), 1)
-        body_layout.addWidget(self._build_right_panel())
-
-        scroller = self._scrollable(body)
+        self._body_scroller = self._scrollable(build_body(self._layout_name, self._editor_widgets()))
+        self._adopt_layout_extras()
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(toolbar)
-        layout.addWidget(scroller, 1)
+        layout.addWidget(self._body_scroller, 1)
         return central
 
     @staticmethod
@@ -311,81 +313,71 @@ class MainWindow(QMainWindow):
             max(_RIGHT_PANEL_WIDTH - trim, _RIGHT_PANEL_MIN_WIDTH),
         )
 
-    def _build_side_panel(self) -> QWidget:
-        save_state_card, save_state_layout = card_layout("soft", spacing=3, margin=12)
-        save_state_layout.addWidget(self._save_state_title)
-        save_state_layout.addWidget(self._save_state_hint)
+    # --- Disposition ---------------------------------------------------------
 
-        panel = QWidget()
-        panel.setObjectName("sidePanel")
-        panel.setFixedWidth(self._side_width)
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(14)
-        layout.addWidget(self._video_player_panel)
-        layout.addWidget(section_header("Source"))
-        layout.addWidget(self._video_panel)
-        layout.addStretch(1)
-        layout.addWidget(save_state_card)
-        return panel
+    def _editor_widgets(self) -> EditorWidgets:
+        """Les panneaux partagés, confiés à la disposition qui les agence."""
+        return EditorWidgets(
+            video_player_panel=self._video_player_panel,
+            video_panel=self._video_panel,
+            transport_controls=self._transport_controls,
+            waveform_overview=self._waveform_overview,
+            waveform=self._waveform_widget,
+            selection_card=self._selection_card,
+            silence_card=self._silence_card,
+            sequence_list=self._sequence_list,
+            save_state_title=self._save_state_title,
+            save_state_hint=self._save_state_hint,
+            zoom_label=self._zoom_label,
+            position_label=self._position_label,
+            duration_label=self._duration_label,
+            merge_preview_button=self._merge_preview_button,
+            crossfade_spin=self._crossfade_spin,
+            processing_action=self._processing_action,
+            side_width=self._side_width,
+            right_width=self._right_width,
+        )
 
-    def _build_waveform_header(self) -> QHBoxLayout:
-        zoom_out_button = icon_button("zoom_out", size=30, flat=True)
-        zoom_out_button.clicked.connect(self._waveform_widget.zoom_out)
-        zoom_out_button.setToolTip("Dézoomer (molette sur la waveform)")
-        zoom_in_button = icon_button("zoom_in", size=30, flat=True)
-        zoom_in_button.clicked.connect(self._waveform_widget.zoom_in)
-        zoom_in_button.setToolTip("Zoomer (molette sur la waveform)")
+    def apply_layout(self, name: str) -> None:
+        """Change l'agencement des panneaux et mémorise le choix pour le prochain lancement.
 
-        header = QHBoxLayout()
-        header.setSpacing(8)
-        header.addWidget(zoom_out_button)
-        header.addWidget(self._zoom_label)
-        header.addWidget(zoom_in_button)
-        header.addSpacing(10)
-        # Une aide décorative ne doit pas imposer sa largeur à tout le panneau central :
-        # sur un écran étroit, c'est elle qui cède en premier.
-        hint = label(_WAVEFORM_HINT, "hintLabel")
-        hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        header.addWidget(hint)
-        header.addStretch(1)
-        header.addWidget(self._position_label)
-        header.addWidget(self._duration_label)
-        return header
+        Le corps de l'éditeur est rebâti : les panneaux partagés sont reparentés dans le nouvel
+        arbre — ils gardent leur contenu, leurs connexions et la lecture en cours — et l'ancien
+        corps, vidé de sa substance, est détruit. Il est détaché *avant* la reconstruction : sans
+        cela, `QScrollArea.setWidget()` détruirait l'ancien corps avec les panneaux encore dedans.
+        """
+        name = get_layout(name)
+        previous = self._body_scroller.takeWidget()
+        self._layout_name = name
+        self._body_scroller.setWidget(build_body(name, self._editor_widgets()))
+        if previous is not None:
+            previous.deleteLater()
+        self._adopt_layout_extras()
+        save_layout_preference(name)
+        self._update_layout_action()
 
-    def _build_center_panel(self) -> QWidget:
-        fusion_row = QHBoxLayout()
-        fusion_row.setSpacing(8)
-        fusion_row.addWidget(label("Aperçu du montage complet", "hintLabel"))
-        fusion_row.addStretch(1)
-        fusion_row.addWidget(self._crossfade_spin)
-        fusion_row.addWidget(self._merge_preview_button)
+    def _adopt_layout_extras(self) -> None:
+        """Récupère les widgets propres à une disposition (absents des autres) et les remet à jour."""
+        self._selected_sequence_card = self._body_scroller.widget().findChild(SelectedSequenceCard)
+        self._update_selected_sequence_card()
 
-        transport_card, transport_layout = card_layout(spacing=0, margin=0)
-        transport_layout.addWidget(self._transport_controls)
+    def _update_selected_sequence_card(self) -> None:
+        if self._selected_sequence_card is not None:
+            self._selected_sequence_card.set_sequence(self._sequence_list.current_sequence())
 
-        panel = QWidget()
-        panel.setObjectName("centerPanel")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(16, 10, 16, 10)
-        layout.setSpacing(9)
-        layout.addLayout(self._build_waveform_header())
-        layout.addWidget(self._waveform_overview)
-        layout.addWidget(self._waveform_widget, 1)
-        layout.addWidget(self._selection_card)
-        layout.addWidget(self._silence_card)
-        layout.addLayout(fusion_row)
-        layout.addWidget(transport_card)
-        return panel
+    def _update_layout_action(self) -> None:
+        """Libellé du bouton de la barre d'outils et coche du menu Affichage."""
+        # Le bouton de la barre d'outils est adossé à l'action : changer son texte suffit.
+        self._layout_action.setText(f"Disposition {self._layout_name}")
+        self._layout_action.setToolTip(
+            f"Changer la disposition des panneaux (actuellement : {LAYOUTS[self._layout_name]})"
+        )
+        action = self._layout_actions.get(self._layout_name)
+        if action is not None:
+            action.setChecked(True)
 
-    def _build_right_panel(self) -> QWidget:
-        panel = QWidget()
-        panel.setObjectName("rightPanel")
-        panel.setFixedWidth(self._right_width)
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._sequence_list)
-        return panel
+    def _toggle_layout(self) -> None:
+        self.apply_layout(next_layout(self._layout_name))
 
     def _build_menus(self) -> None:
         menu_bar = self.menuBar()
@@ -412,7 +404,7 @@ class MainWindow(QMainWindow):
         processing_menu = menu_bar.addMenu("Traitement")
         processing_menu.addAction(self._processing_action)
 
-        self._build_theme_menu()
+        self._build_view_menu()
         self._build_help_menu()
         self._build_title_bar_widgets()
 
@@ -431,8 +423,27 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("Aide")
         help_menu.addAction(self._shortcuts_action)
 
-    def _build_theme_menu(self) -> None:
+    def _build_view_menu(self) -> None:
+        """Menu Affichage : la disposition des panneaux, puis le thème."""
         view_menu = self.menuBar().addMenu("Affichage")
+        self._build_layout_menu(view_menu)
+        view_menu.addSeparator()
+        self._build_theme_menu(view_menu)
+
+    def _build_layout_menu(self, view_menu) -> None:
+        layout_menu = view_menu.addMenu("Disposition")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        for name, description in LAYOUTS.items():
+            action = layout_menu.addAction(description)
+            action.setCheckable(True)
+            action.setChecked(name == self._layout_name)
+            action.triggered.connect(lambda _checked=False, n=name: self.apply_layout(n))
+            group.addAction(action)
+            self._layout_actions[name] = action
+        self._update_layout_action()
+
+    def _build_theme_menu(self, view_menu) -> None:
         theme_menu = view_menu.addMenu("Thème")
         group = QActionGroup(self)
         group.setExclusive(True)
@@ -643,6 +654,7 @@ class MainWindow(QMainWindow):
         self._sequence_list.processing_requested.connect(self._open_processing_dialog)
         self._audio_processing_panel.processed.connect(self._sequence_list.refresh)
         self._audio_processing_panel.processed.connect(self._mark_dirty)
+        self._audio_processing_panel.processed.connect(self._update_selected_sequence_card)
 
     # --- État du projet ------------------------------------------------------
 
@@ -1185,8 +1197,11 @@ class MainWindow(QMainWindow):
             self._position_label.setText(format_timecode_fr(absolute))
 
     def _on_sequence_selected(self, sequence_id: str) -> None:
-        self._audio_processing_panel.set_sequence(self._sequence_list.get_sequence(sequence_id))
+        sequence = self._sequence_list.get_sequence(sequence_id)
+        self._audio_processing_panel.set_sequence(sequence)
         self._waveform_widget.set_active_sequence(sequence_id)
+        if self._selected_sequence_card is not None:
+            self._selected_sequence_card.set_sequence(sequence)
 
     def _update_waveform_regions(self) -> None:
         project = self._video_panel.project
@@ -1202,6 +1217,7 @@ class MainWindow(QMainWindow):
         self._update_project_summary()
         self._mark_dirty()
         self._audio_processing_panel.set_sequence(self._sequence_list.current_sequence())
+        self._update_selected_sequence_card()
 
     def _open_processing_dialog(self) -> None:
         """Ouvre la fenêtre de traitement audio sur la sélection courante."""

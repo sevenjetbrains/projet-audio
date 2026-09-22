@@ -1,0 +1,262 @@
+"""Les deux agencements de l'éditeur, construits à partir des mêmes widgets.
+
+La fenêtre principale possède ses panneaux une fois pour toutes ; ce module ne fait
+que les poser dans un arbre de conteneurs. Changer de disposition revient donc à
+rebâtir ce seul arbre : les widgets partagés sont reparentés (leur état, leurs
+signaux et la lecture en cours sont conservés) et l'ancien corps, désormais vide,
+est jeté.
+
+Contrainte à respecter en ajoutant une disposition : **chaque widget partagé doit
+être posé quelque part**. Un widget laissé de côté se retrouverait sans parent,
+c'est-à-dire en fenêtre flottante. Le test `test_editor_layouts` monte la garde.
+"""
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.config.layouts import get_layout
+from app.ui.design import card_layout, icon_button, label, section_header
+from app.ui.selected_sequence_card import SelectedSequenceCard
+
+_WAVEFORM_HINT = "clic = lecture · glisser = sélection"
+# Hauteur plancher de la waveform : la disposition B lui donne toute la largeur, autant qu'elle
+# y gagne aussi en hauteur, sinon le bandeau du bas se réduit à une ligne de vagues.
+_WAVEFORM_MIN_HEIGHT = {"A": 110, "B": 170}
+# Répartition de départ entre les colonnes et le bandeau de la waveform (disposition B).
+_B_SPLIT_SIZES = (620, 380)
+
+
+@dataclass(frozen=True)
+class EditorWidgets:
+    """Les panneaux partagés par les dispositions, tels que la fenêtre les possède."""
+
+    video_player_panel: QWidget
+    video_panel: QWidget
+    transport_controls: QWidget
+    waveform_overview: QWidget
+    waveform: QWidget
+    selection_card: QWidget
+    silence_card: QWidget
+    sequence_list: QWidget
+    save_state_title: QLabel
+    save_state_hint: QLabel
+    zoom_label: QWidget
+    position_label: QLabel
+    duration_label: QLabel
+    merge_preview_button: QWidget
+    crossfade_spin: QWidget
+    processing_action: QAction
+    side_width: int
+    right_width: int
+
+
+def build_body(name: str, widgets: EditorWidgets) -> QWidget:
+    """Corps de l'éditeur (tout sauf la barre d'outils) dans la disposition demandée."""
+    builder: Callable[[EditorWidgets], QWidget] = _BUILDERS[get_layout(name)]
+    widgets.waveform.setMinimumHeight(_WAVEFORM_MIN_HEIGHT[get_layout(name)])
+    return builder(widgets)
+
+
+# --- Briques communes aux deux dispositions ---------------------------------------------------
+
+
+def _panel(object_name: str, margins: tuple[int, int, int, int], spacing: int) -> tuple[QWidget, QVBoxLayout]:
+    panel = QWidget()
+    panel.setObjectName(object_name)
+    layout = QVBoxLayout(panel)
+    layout.setContentsMargins(*margins)
+    layout.setSpacing(spacing)
+    return panel, layout
+
+
+def _save_state_card(widgets: EditorWidgets) -> QWidget:
+    card, layout = card_layout("soft", spacing=3, margin=12)
+    layout.addWidget(widgets.save_state_title)
+    layout.addWidget(widgets.save_state_hint)
+    return card
+
+
+def _transport_card(widgets: EditorWidgets) -> QWidget:
+    card, layout = card_layout(spacing=0, margin=0)
+    layout.addWidget(widgets.transport_controls)
+    return card
+
+
+def _fusion_row(widgets: EditorWidgets) -> QHBoxLayout:
+    row = QHBoxLayout()
+    row.setSpacing(8)
+    row.addWidget(label("Aperçu du montage complet", "hintLabel"))
+    row.addStretch(1)
+    row.addWidget(widgets.crossfade_spin)
+    row.addWidget(widgets.merge_preview_button)
+    return row
+
+
+def _fusion_column(widgets: EditorWidgets) -> QVBoxLayout:
+    """Même contenu que `_fusion_row`, empilé : la colonne de droite est trop étroite pour une ligne."""
+    column = QVBoxLayout()
+    column.setSpacing(6)
+    column.addWidget(label("Aperçu du montage complet", "hintLabel"))
+    column.addWidget(widgets.crossfade_spin)
+    column.addWidget(widgets.merge_preview_button)
+    return column
+
+
+def _waveform_header(widgets: EditorWidgets) -> QHBoxLayout:
+    zoom_out_button = icon_button("zoom_out", size=30, flat=True)
+    zoom_out_button.clicked.connect(widgets.waveform.zoom_out)
+    zoom_out_button.setToolTip("Dézoomer (molette sur la waveform)")
+    zoom_in_button = icon_button("zoom_in", size=30, flat=True)
+    zoom_in_button.clicked.connect(widgets.waveform.zoom_in)
+    zoom_in_button.setToolTip("Zoomer (molette sur la waveform)")
+
+    header = QHBoxLayout()
+    header.setSpacing(8)
+    header.addWidget(zoom_out_button)
+    header.addWidget(widgets.zoom_label)
+    header.addWidget(zoom_in_button)
+    header.addSpacing(10)
+    # Une aide décorative ne doit pas imposer sa largeur à tout le panneau :
+    # sur un écran étroit, c'est elle qui cède en premier.
+    hint = label(_WAVEFORM_HINT, "hintLabel")
+    hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    header.addWidget(hint)
+    header.addStretch(1)
+    header.addWidget(widgets.position_label)
+    header.addWidget(widgets.duration_label)
+    return header
+
+
+def _processing_button(widgets: EditorWidgets) -> QPushButton:
+    """Raccourci vers la fenêtre de traitement : il déclenche l'action du menu, sans la doubler."""
+    button = QPushButton("Traitement audio…")
+    button.setToolTip("Ouvrir la fenêtre de traitement sur la sélection")
+    button.clicked.connect(widgets.processing_action.trigger)
+    return button
+
+
+# --- Disposition A : lecteur à gauche, waveform au centre, séquences à droite -------------------
+
+
+def _build_layout_a(widgets: EditorWidgets) -> QWidget:
+    body = QWidget()
+    layout = QHBoxLayout(body)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+    layout.addWidget(_a_side_panel(widgets))
+    layout.addWidget(_a_center_panel(widgets), 1)
+    layout.addWidget(_a_right_panel(widgets))
+    return body
+
+
+def _a_side_panel(widgets: EditorWidgets) -> QWidget:
+    panel, layout = _panel("sidePanel", (16, 14, 16, 14), 14)
+    panel.setFixedWidth(widgets.side_width)
+    layout.addWidget(widgets.video_player_panel)
+    layout.addWidget(section_header("Source"))
+    layout.addWidget(widgets.video_panel)
+    layout.addStretch(1)
+    layout.addWidget(_save_state_card(widgets))
+    return panel
+
+
+def _a_center_panel(widgets: EditorWidgets) -> QWidget:
+    panel, layout = _panel("centerPanel", (16, 10, 16, 10), 9)
+    layout.addLayout(_waveform_header(widgets))
+    layout.addWidget(widgets.waveform_overview)
+    layout.addWidget(widgets.waveform, 1)
+    layout.addWidget(widgets.selection_card)
+    layout.addWidget(widgets.silence_card)
+    layout.addLayout(_fusion_row(widgets))
+    layout.addWidget(_transport_card(widgets))
+    return panel
+
+
+def _a_right_panel(widgets: EditorWidgets) -> QWidget:
+    panel, layout = _panel("rightPanel", (0, 0, 0, 0), 0)
+    panel.setFixedWidth(widgets.right_width)
+    layout.addWidget(widgets.sequence_list)
+    return panel
+
+
+# --- Disposition B : séquences à gauche, lecteur au centre, waveform pleine largeur -------------
+
+
+def _build_layout_b(widgets: EditorWidgets) -> QWidget:
+    columns = QWidget()
+    columns_layout = QHBoxLayout(columns)
+    columns_layout.setContentsMargins(0, 0, 0, 0)
+    columns_layout.setSpacing(0)
+    columns_layout.addWidget(_b_sequences_panel(widgets))
+    columns_layout.addWidget(_b_player_panel(widgets), 1)
+    columns_layout.addWidget(_b_source_panel(widgets))
+
+    # L'aperçu vidéo occupe toute la largeur centrale : sans poignée, il imposerait sa hauteur
+    # (jusqu'à 420 px) au bandeau de la waveform. La séparation se règle donc à la souris.
+    body = QSplitter(Qt.Orientation.Vertical)
+    body.setObjectName("editorSplitter")
+    body.setChildrenCollapsible(False)
+    body.addWidget(columns)
+    body.addWidget(_b_waveform_dock(widgets))
+    body.setStretchFactor(0, 1)
+    body.setStretchFactor(1, 0)
+    body.setSizes(list(_B_SPLIT_SIZES))
+    return body
+
+
+def _b_sequences_panel(widgets: EditorWidgets) -> QWidget:
+    panel, layout = _panel("sidePanel", (0, 0, 0, 0), 0)
+    panel.setFixedWidth(widgets.side_width)
+    layout.addWidget(widgets.sequence_list)
+    return panel
+
+
+def _b_player_panel(widgets: EditorWidgets) -> QWidget:
+    panel, layout = _panel("centerPanel", (16, 10, 16, 10), 9)
+    layout.addWidget(widgets.video_player_panel, 1)
+    layout.addWidget(_transport_card(widgets))
+    return panel
+
+
+def _b_source_panel(widgets: EditorWidgets) -> QWidget:
+    """Colonne « inspecteur » : la source, la séquence sélectionnée, puis les outils de découpage
+    et de fusion que la disposition A garde au centre."""
+    panel, layout = _panel("rightPanel", (16, 14, 16, 14), 12)
+    panel.setFixedWidth(widgets.right_width)
+    layout.addWidget(section_header("Source"))
+    layout.addWidget(widgets.video_panel)
+    layout.addWidget(section_header("Séquence sélectionnée"))
+    layout.addWidget(SelectedSequenceCard())
+    layout.addWidget(_processing_button(widgets))
+    layout.addWidget(widgets.silence_card)
+    layout.addLayout(_fusion_column(widgets))
+    layout.addStretch(1)
+    layout.addWidget(_save_state_card(widgets))
+    return panel
+
+
+def _b_waveform_dock(widgets: EditorWidgets) -> QWidget:
+    panel, layout = _panel("bottomPanel", (16, 10, 16, 12), 9)
+    layout.addLayout(_waveform_header(widgets))
+    layout.addWidget(widgets.waveform_overview)
+    layout.addWidget(widgets.waveform, 1)
+    layout.addWidget(widgets.selection_card)
+    return panel
+
+
+_BUILDERS: dict[str, Callable[[EditorWidgets], QWidget]] = {
+    "A": _build_layout_a,
+    "B": _build_layout_b,
+}

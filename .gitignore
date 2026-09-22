@@ -9,4 +9,5 @@ logs/*
 .pytest_cache/
 recent_projects.json
 theme.json
+layout.json
 custom_profiles.json
