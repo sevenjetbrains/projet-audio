@@ -37,6 +37,16 @@ _WAVEFORM_HINT = "clic = lecture · glisser = sélection"
 # y gagne aussi en hauteur, sinon le bandeau du bas se réduit à une ligne de vagues.
 _WAVEFORM_MIN_HEIGHT = {"A": 110, "B": 110}
 
+# Largeurs par défaut des colonnes latérales (avant réduction éventuelle par `MainWindow._column_widths`
+# sur un écran étroit) et planchers en dessous desquels une colonne ne descend plus, qu'on la redimensionne
+# à la souris ou que la fenêtre elle-même se réduise. Publiques : `main_window` les réutilise pour calculer
+# la largeur de départ des colonnes, avant de les confier à ce module.
+SIDE_PANEL_WIDTH = 410
+SIDE_PANEL_MIN_WIDTH = 300
+RIGHT_PANEL_WIDTH = 360
+RIGHT_PANEL_MIN_WIDTH = 270
+CENTER_PANEL_MIN_WIDTH = 590
+
 
 @dataclass(frozen=True)
 class EditorWidgets:
@@ -155,19 +165,21 @@ def _processing_button(widgets: EditorWidgets) -> QPushButton:
 
 
 def _build_layout_a(widgets: EditorWidgets) -> QWidget:
-    body = QWidget()
-    layout = QHBoxLayout(body)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(0)
-    layout.addWidget(_a_side_panel(widgets))
-    layout.addWidget(_a_center_panel(widgets), 1)
-    layout.addWidget(_a_right_panel(widgets))
+    # Trois colonnes séparées par des poignées : chacune se redimensionne à la souris, la colonne
+    # centrale (waveform) absorbant ce que les deux autres cèdent ou réclament (voir `setStretchFactor`).
+    body = _EditorSplitter(Qt.Orientation.Horizontal, _row_sizes(widgets.side_width, widgets.right_width))
+    body.addWidget(_a_side_panel(widgets))
+    body.addWidget(_a_center_panel(widgets))
+    body.addWidget(_a_right_panel(widgets))
+    body.setStretchFactor(0, 0)
+    body.setStretchFactor(1, 1)
+    body.setStretchFactor(2, 0)
     return body
 
 
 def _a_side_panel(widgets: EditorWidgets) -> QWidget:
     panel, layout = _panel("sidePanel", (16, 14, 16, 14), 14)
-    panel.setFixedWidth(widgets.side_width)
+    panel.setMinimumWidth(SIDE_PANEL_MIN_WIDTH)
     layout.addWidget(widgets.video_player_panel)
     layout.addWidget(section_header("Source"))
     layout.addWidget(widgets.video_panel)
@@ -178,6 +190,7 @@ def _a_side_panel(widgets: EditorWidgets) -> QWidget:
 
 def _a_center_panel(widgets: EditorWidgets) -> QWidget:
     panel, layout = _panel("centerPanel", (16, 10, 16, 10), 9)
+    panel.setMinimumWidth(CENTER_PANEL_MIN_WIDTH)
     layout.addLayout(_waveform_header(widgets))
     layout.addWidget(widgets.waveform_overview)
     layout.addWidget(widgets.waveform, 1)
@@ -190,7 +203,7 @@ def _a_center_panel(widgets: EditorWidgets) -> QWidget:
 
 def _a_right_panel(widgets: EditorWidgets) -> QWidget:
     panel, layout = _panel("rightPanel", (0, 0, 0, 0), 0)
-    panel.setFixedWidth(widgets.right_width)
+    panel.setMinimumWidth(RIGHT_PANEL_MIN_WIDTH)
     layout.addWidget(widgets.sequence_list)
     return panel
 
@@ -199,17 +212,18 @@ def _a_right_panel(widgets: EditorWidgets) -> QWidget:
 
 
 def _build_layout_b(widgets: EditorWidgets) -> QWidget:
-    columns = QWidget()
-    columns_layout = QHBoxLayout(columns)
-    columns_layout.setContentsMargins(0, 0, 0, 0)
-    columns_layout.setSpacing(0)
-    columns_layout.addWidget(_b_sequences_panel(widgets))
-    columns_layout.addWidget(_b_player_panel(widgets), 1)
-    columns_layout.addWidget(_b_source_panel(widgets))
+    # Les trois colonnes, elles aussi séparées par des poignées (voir `_build_layout_a`).
+    columns = _EditorSplitter(Qt.Orientation.Horizontal, _row_sizes(widgets.side_width, widgets.right_width))
+    columns.addWidget(_b_sequences_panel(widgets))
+    columns.addWidget(_b_player_panel(widgets))
+    columns.addWidget(_b_source_panel(widgets))
+    columns.setStretchFactor(0, 0)
+    columns.setStretchFactor(1, 1)
+    columns.setStretchFactor(2, 0)
 
     # L'aperçu vidéo occupe toute la largeur centrale : sans poignée, il imposerait sa hauteur
     # (jusqu'à 420 px) au bandeau de la waveform. La séparation se règle donc à la souris.
-    body = _EditorSplitter()
+    body = _EditorSplitter(Qt.Orientation.Vertical, _columns_and_dock_sizes)
     body.addWidget(columns)
     body.addWidget(_b_waveform_dock(widgets))
     # Les colonnes gardent leur hauteur naturelle, la place en plus va à la waveform : c'est
@@ -220,34 +234,54 @@ def _build_layout_b(widgets: EditorWidgets) -> QWidget:
 
 
 class _EditorSplitter(QSplitter):
-    """Séparation verticale colonnes / waveform, répartie à la première ouverture.
+    """Séparation entre panneaux, avec poignée à la souris, répartie à la première ouverture.
 
-    `setSizes()` à la construction ne sert à rien : le splitter n'a pas encore sa hauteur et Qt
-    ramène les valeurs à la taille par défaut. La répartition se fait donc au premier affichage,
-    quand la hauteur réelle est connue : les colonnes prennent ce qu'elles demandent, la waveform
-    prend le reste (sans descendre sous son minimum).
+    `setSizes()` à la construction ne sert à rien : le splitter n'a pas encore sa taille réelle et
+    Qt ramène les valeurs à une répartition par défaut. La répartition demandée par `initial_sizes`
+    (en pixels, calculée à partir de la taille réelle du splitter) n'est donc appliquée qu'au premier
+    affichage. `setChildrenCollapsible(False)` empêche un panneau de disparaître complètement : il
+    reste toujours au moins sa taille minimale, celle posée par chaque panneau (`setMinimumWidth`).
     """
 
-    def __init__(self) -> None:
-        super().__init__(Qt.Orientation.Vertical)
+    def __init__(self, orientation: Qt.Orientation, initial_sizes: Callable[["_EditorSplitter"], list[int]]) -> None:
+        super().__init__(orientation)
         self.setObjectName("editorSplitter")
         self.setChildrenCollapsible(False)
+        self._initial_sizes = initial_sizes
         self._balanced = False
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        if self._balanced or self.count() != 2:
+        if self._balanced:
             return
         self._balanced = True
-        total = self.height() - self.handleWidth()
-        columns = self.widget(0).sizeHint().height()
-        dock = max(total - columns, self.widget(1).minimumSizeHint().height())
-        self.setSizes([max(total - dock, self.widget(0).minimumSizeHint().height()), dock])
+        self.setSizes(self._initial_sizes(self))
+
+
+def _row_sizes(left_width: int, right_width: int) -> Callable[["_EditorSplitter"], list[int]]:
+    """Répartition d'une rangée de trois colonnes : les deux extrêmes à leur largeur par défaut, la
+    colonne centrale prend le reste (sans jamais descendre sous ce qu'elle réclame elle-même)."""
+
+    def sizes(splitter: "_EditorSplitter") -> list[int]:
+        total = splitter.width() - splitter.handleWidth() * (splitter.count() - 1)
+        center = max(total - left_width - right_width, splitter.widget(1).minimumSizeHint().width())
+        return [left_width, center, right_width]
+
+    return sizes
+
+
+def _columns_and_dock_sizes(splitter: "_EditorSplitter") -> list[int]:
+    """Répartition verticale (disposition B) : les colonnes gardent leur hauteur naturelle, la
+    waveform prend le reste (sans descendre sous ce qu'elle réclame elle-même)."""
+    total = splitter.height() - splitter.handleWidth()
+    columns = splitter.widget(0).sizeHint().height()
+    dock = max(total - columns, splitter.widget(1).minimumSizeHint().height())
+    return [max(total - dock, splitter.widget(0).minimumSizeHint().height()), dock]
 
 
 def _b_sequences_panel(widgets: EditorWidgets) -> QWidget:
     panel, layout = _panel("sidePanel", (0, 0, 0, 0), 0)
-    panel.setFixedWidth(widgets.side_width)
+    panel.setMinimumWidth(SIDE_PANEL_MIN_WIDTH)
     layout.addWidget(widgets.sequence_list)
     return panel
 
@@ -276,20 +310,22 @@ def _b_source_panel(widgets: EditorWidgets) -> QWidget:
     layout.addLayout(_fusion_column(widgets))
     layout.addStretch(1)
     layout.addWidget(_save_state_card(widgets))
-    return _scrollable_column(panel, widgets.right_width)
+    return _scrollable_column(panel, RIGHT_PANEL_MIN_WIDTH)
 
 
-def _scrollable_column(panel: QWidget, width: int | None = None) -> QScrollArea:
+def _scrollable_column(panel: QWidget, min_width: int | None = None) -> QScrollArea:
     """Colonne qui défile verticalement, sans cadre ni défilement horizontal.
 
     Sans cela, la plus haute des trois colonnes imposerait sa hauteur au corps de l'éditeur et
-    repousserait le bandeau de la waveform hors de l'écran sur une fenêtre un peu basse.
+    repousserait le bandeau de la waveform hors de l'écran sur une fenêtre un peu basse. `min_width`
+    n'est qu'un plancher (le splitter qui l'accueille fixe la largeur réelle, ajustable à la souris) :
+    contrairement à une largeur fixe, la colonne peut toujours grandir davantage.
     """
     area = QScrollArea()
     area.setWidgetResizable(True)
     area.setFrameShape(QFrame.Shape.NoFrame)
-    if width is not None:
-        area.setFixedWidth(width)
+    if min_width is not None:
+        area.setMinimumWidth(min_width)
     area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     area.setWidget(panel)
     return area

@@ -79,6 +79,9 @@ class VideoPlayerPanel(QWidget):
 
         transport.position_changed.connect(self._on_position_changed)
         transport.playing_changed.connect(self._on_playing_changed)
+        # Clic sur l'image : lecture / pause, comme la plupart des lecteurs vidéo. `toggle_play_pause`
+        # ne fait rien tant qu'aucune source n'est chargée (bouton Lecture désactivé) : pas de garde à ajouter ici.
+        preview.video_clicked.connect(transport.toggle_play_pause)
         self._wire_fullscreen_controls()
 
     def _wire_fullscreen_controls(self) -> None:

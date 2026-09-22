@@ -1,10 +1,12 @@
 """Tests des dispositions de la fenêtre principale (préférence, bascule, agencement)."""
 
 import pytest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QSplitter, QWidget
 
 from app.config import layouts
 from app.config.settings import find_ffmpeg_binaries
+from app.ui.editor_layouts import CENTER_PANEL_MIN_WIDTH, RIGHT_PANEL_MIN_WIDTH, SIDE_PANEL_MIN_WIDTH
 from app.ui.main_window import MainWindow
 from app.ui.selected_sequence_card import SelectedSequenceCard
 
@@ -154,14 +156,109 @@ def test_layout_b_puts_the_waveform_under_the_columns(window):
 
 def test_layout_b_lets_the_waveform_band_be_resized(window):
     """L'aperçu vidéo occupe toute la largeur centrale : sans poignée il écraserait la waveform."""
-    from PySide6.QtWidgets import QSplitter
-
     window.apply_layout("B")
     splitter = window._body_scroller.widget()
 
     assert isinstance(splitter, QSplitter)
     assert splitter.count() == 2
     assert not splitter.childrenCollapsible()
+
+
+# --- Poignées de redimensionnement (chaque panneau s'ajuste à la souris) ------------------------
+
+
+@pytest.mark.parametrize("name", list(layouts.LAYOUTS))
+def test_layout_columns_form_a_resizable_splitter(window, name):
+    row = _column_row(window, name)
+
+    assert isinstance(row, QSplitter)
+    assert row.orientation() == Qt.Orientation.Horizontal
+    assert row.count() == 3
+    assert not row.childrenCollapsible()
+
+
+@pytest.mark.parametrize("name", list(layouts.LAYOUTS))
+def test_side_and_right_panels_have_a_floor_but_no_fixed_ceiling(window, name):
+    """Avant : `setFixedWidth` empêchait tout redimensionnement. Un plancher (`setMinimumWidth`)
+    garde les panneaux lisibles sans empêcher l'utilisateur de les agrandir."""
+    row = _column_row(window, name)
+
+    side, right = row.widget(0), row.widget(2)
+
+    assert side.minimumWidth() == SIDE_PANEL_MIN_WIDTH
+    assert right.minimumWidth() == RIGHT_PANEL_MIN_WIDTH
+    # Qt renvoie 16777215 (QWIDGETSIZE_MAX) tant qu'aucune largeur maximale n'a été fixée.
+    assert side.maximumWidth() > SIDE_PANEL_MIN_WIDTH * 10
+    assert right.maximumWidth() > RIGHT_PANEL_MIN_WIDTH * 10
+
+
+def test_layout_a_center_panel_keeps_its_minimum_width(window):
+    row = _column_row(window, "A")
+
+    assert row.widget(1).minimumWidth() == CENTER_PANEL_MIN_WIDTH
+
+
+def _column_row(window, name: str) -> QSplitter:
+    """Splitter horizontal portant les trois colonnes (le corps lui-même en A, son premier
+    enfant en B, où le corps sépare verticalement les colonnes du bandeau de la waveform)."""
+    window.apply_layout(name)
+    body = window._body_scroller.widget()
+    return body if name == "A" else body.widget(0)
+
+
+def _shown_column_row(qtbot, window, name: str) -> QSplitter:
+    """Comme `_column_row`, mais avec l'éditeur réellement affiché : la répartition initiale des
+    tailles n'a lieu qu'au premier `showEvent`, jamais reçu tant que la page reste sur l'accueil."""
+    row = _column_row(window, name)
+    window._pages.setCurrentIndex(1)  # bascule vers la page éditeur (l'accueil est affiché par défaut)
+    window.resize(1600, 900)
+    window.show()
+    qtbot.waitExposed(window)
+    return row
+
+
+@pytest.mark.parametrize("name", list(layouts.LAYOUTS))
+def test_dragging_a_handle_resizes_the_side_panel(qtbot, window, name):
+    """Simule un glissement de poignée (`QSplitter.setSizes`, ce que fait un vrai glissement) et
+    vérifie que le panneau prend bien la largeur demandée, au lieu de rester figé."""
+    row = _shown_column_row(qtbot, window, name)
+    before = row.sizes()
+    assert before[0] > SIDE_PANEL_MIN_WIDTH  # la colonne démarre plus large que son plancher
+
+    grown = SIDE_PANEL_MIN_WIDTH + 120
+    shrink_center = before[1] - (grown - before[0])
+    row.setSizes([grown, max(shrink_center, 1), before[2]])
+
+    assert row.sizes()[0] == grown
+    assert row.widget(0).width() == grown
+
+    row.setSizes([SIDE_PANEL_MIN_WIDTH, before[1] + (before[0] - SIDE_PANEL_MIN_WIDTH), before[2]])
+    assert row.sizes()[0] == SIDE_PANEL_MIN_WIDTH  # peut aussi être resserrée, jusqu'à son plancher
+
+
+def test_a_handle_cannot_shrink_a_panel_below_its_floor(qtbot, window):
+    """`setChildrenCollapsible(False)` + `setMinimumWidth` : la poignée ne peut pas faire
+    disparaître un panneau, ni le réduire sous sa largeur minimale."""
+    row = _shown_column_row(qtbot, window, "A")
+
+    row.setSizes([0, 1600, 0])  # tentative de tout donner à la colonne centrale
+
+    assert row.sizes()[0] >= SIDE_PANEL_MIN_WIDTH
+    assert row.sizes()[2] >= RIGHT_PANEL_MIN_WIDTH
+
+
+def test_layout_a_starts_at_the_preferred_column_widths(qtbot, window):
+    row = _shown_column_row(qtbot, window, "A")
+
+    assert row.sizes()[0] == window._side_width
+    assert row.sizes()[2] == window._right_width
+
+
+def test_layout_b_columns_start_at_the_preferred_widths(qtbot, window):
+    row = _shown_column_row(qtbot, window, "B")
+
+    assert row.sizes()[0] == window._side_width
+    assert row.sizes()[2] == window._right_width
 
 
 @pytest.mark.parametrize("name", list(layouts.LAYOUTS))

@@ -49,7 +49,15 @@ from app.ui.app_toolbar import AppToolBar
 from app.ui.audio_processing_panel import AudioProcessingPanel
 from app.ui.auto_split_dialog import AutoSplitDialog
 from app.ui.design import flat_button, label
-from app.ui.editor_layouts import EditorWidgets, build_body
+from app.ui.editor_layouts import (
+    CENTER_PANEL_MIN_WIDTH as _CENTER_PANEL_MIN_WIDTH,
+    RIGHT_PANEL_MIN_WIDTH as _RIGHT_PANEL_MIN_WIDTH,
+    RIGHT_PANEL_WIDTH as _RIGHT_PANEL_WIDTH,
+    SIDE_PANEL_MIN_WIDTH as _SIDE_PANEL_MIN_WIDTH,
+    SIDE_PANEL_WIDTH as _SIDE_PANEL_WIDTH,
+    EditorWidgets,
+    build_body,
+)
 from app.ui.export_dialog import ExportDialog
 from app.ui.icons import set_icon_palette
 from app.ui.processing_dialog import ProcessingDialog
@@ -72,14 +80,10 @@ from app.utils.time_utils import format_timecode, format_timecode_fr
 from app.workers.ffmpeg_worker import FFmpegTaskWorker
 
 # Largeurs voulues des colonnes latérales, et le minimum en deçà duquel elles deviennent
-# illisibles. Sur un écran trop étroit pour la somme des trois colonnes, les deux latérales
-# sont rognées à parts égales : mieux vaut des colonnes un peu plus serrées qu'une fenêtre
-# plus large que l'écran, dont Windows coupe purement et simplement le bord droit.
-_SIDE_PANEL_WIDTH = 410
-_SIDE_PANEL_MIN_WIDTH = 300
-_RIGHT_PANEL_WIDTH = 360
-_RIGHT_PANEL_MIN_WIDTH = 270
-_CENTER_PANEL_MIN_WIDTH = 590
+# illisibles (définies dans `editor_layouts`, qui pose aussi les poignées de redimensionnement).
+# Sur un écran trop étroit pour la somme des trois colonnes, les deux latérales sont rognées à
+# parts égales : mieux vaut des colonnes un peu plus serrées qu'une fenêtre plus large que
+# l'écran, dont Windows coupe purement et simplement le bord droit.
 _WINDOW_SIZE = (1440, 900)
 _AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
 _SAVE_STATE_REFRESH_MS = 30 * 1000

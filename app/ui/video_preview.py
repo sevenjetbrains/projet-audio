@@ -169,8 +169,28 @@ class _AspectStackedLayout(QStackedLayout):
         return QSize(_MIN_WIDTH, _MIN_HEIGHT)
 
 
+class _ClickableVideoWidget(QVideoWidget):
+    """QVideoWidget qui émet `clicked` sur un clic gauche (lecture / pause au clic sur l'image).
+
+    Dans Qt 6, la surface vidéo peut être une fenêtre native (accélération matérielle) : un widget
+    posé à côté ou par-dessus ne reçoit pas ses événements (voir `_FullscreenWindow` plus haut, où la
+    barre de contrôle doit devenir une fenêtre à part et surveiller le curseur par sondage). Le clic
+    est donc intercepté ici, sur le widget lui-même — son propre `mousePressEvent` reste fiable, seuls
+    les événements *venus de l'extérieur* (filtres, widgets voisins) sont perdus.
+    """
+
+    clicked = Signal()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class VideoPreview(QWidget):
     """Sortie vidéo du lecteur : permet de visualiser la vidéo pour repérer les passages à extraire."""
+
+    video_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -182,7 +202,8 @@ class VideoPreview(QWidget):
         self._fullscreen_controls = FullscreenControls(self)
         self._fullscreen_controls.hide()
 
-        self._video_widget = QVideoWidget()
+        self._video_widget = _ClickableVideoWidget()
+        self._video_widget.clicked.connect(self.video_clicked)
         # Sa taille naturelle (celle de la vidéo) ne doit jamais dicter celle de l'aperçu : voir _AspectStackedLayout.
         self._video_widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self._placeholder = QLabel(_PLACEHOLDER)

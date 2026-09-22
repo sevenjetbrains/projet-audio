@@ -27,6 +27,7 @@ python -m app.main
 
 - Écran d'accueil tant qu'aucun projet n'est ouvert : zone de dépôt (vidéo ou .acsproject), boutons d'import et d'ouverture, formats acceptés, projets récents avec leur nombre de séquences et leur date, progression de l'import annulable, et bandeau de récupération d'une sauvegarde automatique ; les menus sans objet y sont grisés
 - Plein écran de l'aperçu vidéo avec barre de contrôle (lecture/pause, progression cliquable, temps écoulé et durée, masquage automatique ; Échap ou double-clic pour revenir)
+- Clic sur l'image vidéo (fenêtré ou plein écran) : lecture / pause, comme la plupart des lecteurs
 - Aperçu fluide : copie allégée de la vidéo préparée en arrière-plan pour se déplacer instantanément (avant comme arrière)
 - Bornes de la sélection ajustables directement sur la waveform (poignées à tirer, en direct)
 - Boucle de la sélection (bouton ou L) : les bornes se règlent en écoutant, la boucle suit les changements
@@ -45,6 +46,7 @@ python -m app.main
 - Traitement audio non destructif : réduction de bruit, anti-ronflement (de-hum), de-click, compression réglable (ratio et seuil), gain, fondus, normalisation par crête (cible en dBFS, mesurée puis corrigée au gain constant) ou en loudness (LUFS)
 - Fenêtre de traitement en cartes : profils cliquables à gauche (Voix parlée, Interview, Podcast, Conférence, Enregistrement micro, Voix faible), réglages groupés par thème à droite (réduction de bruit, nettoyage, égaliseur, normalisation, compression, gain et fondus, suppression des silences) ; toucher un réglage quitte le profil, « Enregistrer comme profil… » garde les réglages courants sous un nom (clic droit sur la vignette pour le supprimer), et « Appliquer » traite la sélection entière
 - Deux dispositions de la fenêtre au choix (menu Affichage > Disposition, ou le bouton « Disposition » de la barre d'outils), choix mémorisé : « A » lecteur vidéo et source à gauche, waveform et outils au centre, séquences à droite ; « B » séquences à gauche, lecteur au centre, source et séquence sélectionnée à droite, waveform sur toute la largeur en bas (hauteur du bandeau réglable à la poignée)
+- Chaque colonne se redimensionne à la souris (poignées entre les panneaux, dans les deux dispositions), avec une largeur minimale lisible
 - Thèmes sombre et clair (menu Affichage), choix mémorisé
 - Titre de fenêtre avec astérisque si modifications non sauvegardées, confirmation avant fermeture, nouvel import ou ouverture d'un autre projet
 - Raccourcis clavier des boutons (infobulles) : Suppr, Ctrl+D, F2, Ctrl+L (séquences) ; Ctrl+Entrée, Ctrl+Maj+Entrée, Ctrl+R (traitement) ; Ctrl+M (fusion) ; F1 : liste complète des raccourcis ; Alt+←/→, Ctrl+Espace (lecture)

@@ -141,6 +141,16 @@ QSplitter#editorSplitter::handle:vertical:hover {
     background-color: $border_strong;
 }
 
+/* Poignée entre les colonnes (dispositions A et B) : chaque panneau se redimensionne à la souris. */
+QSplitter#editorSplitter::handle:horizontal {
+    width: 7px;
+    background-color: $surface;
+}
+
+QSplitter#editorSplitter::handle:horizontal:hover {
+    background-color: $border_strong;
+}
+
 QFrame[card="true"] {
     background-color: $card;
     border: 1px solid $border;
